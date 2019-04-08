@@ -38,9 +38,9 @@ public class PingSenderUDP implements Runnable {
      * Starts the thread.
      */
     public void start () {
-        if (t == null) {
-            t = new Thread (this, threadName);
-            t.start();
+        if (this.t == null) {
+            this.t = new Thread (this, threadName);
+            this.t.start();
         }
     }
 

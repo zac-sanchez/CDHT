@@ -2,8 +2,6 @@ import java.net.*;
 import java.io.*;
 import java.util.regex.*;
 
-import javax.jws.soap.SOAPBinding.Use;
-
 public class cdht {
 
     public static final int DEFAULT_PORT = 50000;
@@ -150,8 +148,7 @@ public class cdht {
         }
     }
 
-    // =================OTHER UTILITY
-    // FUNCTIONS======================================//
+    // =================OTHER UTILITY FUNCTIONS======================================//
 
     /**
      * Parses the user input and directs decision to either the graceful quit
