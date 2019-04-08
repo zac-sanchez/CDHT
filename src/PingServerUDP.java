@@ -10,6 +10,7 @@ public class PingServerUDP implements Runnable {
     private Thread t;
     private cdht peer;
     private int peer_id;
+    private DatagramSocket socket;
 
     /**
      * Instantiates a ping server.
@@ -26,14 +27,13 @@ public class PingServerUDP implements Runnable {
     public void run() {
         try {
             // Create a new UDP socket with the given port.
-            DatagramSocket socket = new DatagramSocket(cdht.getPort(peer_id));
-
+            this.socket = new DatagramSocket(cdht.getPort(peer_id));
             while(true) {
                 try {
 
                     // Read in a request through the socket.
                     DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
-                    socket.receive(request);
+                    this.socket.receive(request);
                     try {
                         // Prints receipt of request from sender.
                         String str_id = getPacketString(request);
@@ -44,7 +44,7 @@ public class PingServerUDP implements Runnable {
                         peer.updatePredecessors(id); 
 
                         // Send a response to the sender acknowledging the receipt.
-                        sendPingResponse(socket, request, Integer.toString(peer_id));
+                        sendPingResponse(this.socket, request, Integer.toString(peer_id));
                         printPingResponse(Integer.toString(id));
                     } catch (IOException e) {
                         System.out.println("Error reading ping.");

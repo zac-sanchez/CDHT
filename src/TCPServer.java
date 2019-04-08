@@ -10,6 +10,7 @@ public class TCPServer implements Runnable {
     private Thread t;
     private cdht peer;
     private int peer_id;
+    private ServerSocket TCPSocket;
 
     /**
      * Instantiates the TCP server.
@@ -40,11 +41,12 @@ public class TCPServer implements Runnable {
     private void startTCPServer() {
         int port = cdht.getPort(peer_id);
         try {
-            ServerSocket TCPSocket = new ServerSocket(port, 0, InetAddress.getByName("localhost"));
+            this.TCPSocket = new ServerSocket(port, 0, InetAddress.getByName("localhost"));
             while (true) {
                 Socket tcps = TCPSocket.accept();
                 BufferedReader tcp_reader = new BufferedReader(new InputStreamReader(tcps.getInputStream()));
                 String tcp_message = tcp_reader.readLine();
+                System.out.println(tcp_message);
                 parseTCPRequest(tcp_message);
             }
 
@@ -52,6 +54,13 @@ public class TCPServer implements Runnable {
             System.err.println(e);
         }
         
+    }
+
+    /**
+     * Closes the TCP Socket attached to the server.
+     */
+    private void closeTCPServer() {
+        this.TCPSocket.close();
     }
 
     /**

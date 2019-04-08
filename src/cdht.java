@@ -12,10 +12,10 @@ public class cdht {
     public static final int MAX_FAILS = 4;
 
     public int peer_id;
-    public int first_succ_id;
-    public int second_succ_id;
-    public int first_predecessor = -1;
-    public int second_predecessor = -1;
+    public int first_succ;
+    public int second_succ;
+    public int first_pred = -1;
+    public int second_pred = -1;
 
     private int MSS;
     private float drop_prob;
@@ -26,8 +26,8 @@ public class cdht {
 
     public cdht(int peer_id, int first_succ_id, int second_succ_id, int MSS, float drop_prob) {
         this.peer_id = peer_id;
-        this.first_succ_id = first_succ_id;
-        this.second_succ_id = second_succ_id;
+        this.first_succ = first_succ_id;
+        this.second_succ = second_succ_id;
         this.MSS = MSS;
         this.drop_prob = drop_prob;
     }
@@ -71,7 +71,6 @@ public class cdht {
             } catch (IOException e) {
                 System.err.println(e);
             }
-
         }
     }
 
@@ -84,9 +83,9 @@ public class cdht {
     private void initializeThreads() {
         this.pingServer = new PingServerUDP(this);
         this.pingServer.start();
-        this.pingSenderFirst = new PingSenderUDP(peer_id, first_succ_id);
+        this.pingSenderFirst = new PingSenderUDP(peer_id, first_succ);
         this.pingSenderFirst.start();
-        this.pingSenderSecond = new PingSenderUDP(peer_id, second_succ_id);
+        this.pingSenderSecond = new PingSenderUDP(peer_id, second_succ);
         this.pingSenderSecond.start();
         this.tcpServer = new TCPServer(this);
         this.tcpServer.start();
@@ -98,32 +97,39 @@ public class cdht {
      * @param id
      */
     public void updatePredecessors(int id) {
-        if (this.first_predecessor == -1) {
-            this.first_predecessor = id;
-        } else if (this.second_predecessor == -1) {
-            this.second_predecessor = id;
+
+        if (isPredecessor(id)) {
+            // Potentially due to the scheduling of the threads, we could receive two ping requests in a row
+            // From the same peer. In that case we should just disregard the second one.
+            return;
         }
 
-        /*
-         * Logic to get the first predecessor and second predecessor right when updating
-         * predecessors. The predecessors are stored increasing order modulo number of
-         * peers. I.e in the order (from least to greatest) 1 2 3 .. n 1 2 3 .. n ...
-         */
-        if (this.first_predecessor > this.peer_id && this.second_predecessor < this.peer_id) {
-            int temp = this.first_predecessor;
-            this.first_predecessor = this.second_predecessor;
-            this.second_predecessor = temp;
-        } else if (this.first_predecessor > this.peer_id && this.second_predecessor > this.peer_id) {
-            if (this.first_predecessor < this.second_predecessor) {
-                int temp = this.second_predecessor;
-                this.second_predecessor = this.first_predecessor;
-                this.first_predecessor = temp;
+        if (this.first_pred == -1) {
+            this.first_pred = id;
+        } else if (this.second_pred == -1) {
+            this.second_pred = id;
+            /*
+            * Logic to get the first predecessor and second predecessor right when updating
+            * predecessors. The predecessors are stored increasing order modulo number of
+            * peers. I.e in the order (from least to greatest) 1 2 3 .. n 1 2 3 .. n ...
+            */
+        }
+        
+        if (this.first_pred > this.peer_id && this.second_pred < this.peer_id) {
+            int temp = this.first_pred;
+            this.first_pred = this.second_pred;
+            this.second_pred = temp;
+        } else if (this.first_pred > this.peer_id && this.second_pred > this.peer_id) {
+            if (this.first_pred < this.second_pred) {
+                int temp = this.second_pred;
+                this.second_pred = this.first_pred;
+                this.first_pred = temp;
             }
-        } else if (this.first_predecessor < this.peer_id && this.second_predecessor < this.peer_id) {
-            if (this.first_predecessor < this.second_predecessor) {
-                int temp = this.second_predecessor;
-                this.second_predecessor = this.first_predecessor;
-                this.first_predecessor = temp;
+        } else if (this.first_pred < this.peer_id && this.second_pred < this.peer_id) {
+            if (this.first_pred < this.second_pred) {
+                int temp = this.second_pred;
+                this.second_pred = this.first_pred;
+                this.first_pred = temp;
             }
         }
     }
@@ -142,38 +148,66 @@ public class cdht {
         // Draw up some simple regex for parsing input.
         String file_request_pattern_str = "request \\d{4}";
         String quit_pattern_str = "quit";
+        String print_debug = "debug";
 
         Pattern file_request_pattern = Pattern.compile(file_request_pattern_str);
         Pattern quit_pattern = Pattern.compile(quit_pattern_str);
+        Pattern debug_pattern = Pattern.compile(print_debug);
 
         Matcher file_matcher = file_request_pattern.matcher(usr_input);
         Matcher quit_matcher = quit_pattern.matcher(usr_input);
+        Matcher debug_matcher = debug_pattern.matcher(usr_input);
 
         if (file_matcher.find()) {
             // Grab the second element from the string split (the 4 numbers)
             String file_name = usr_input.split(" ")[1];
-
             createFileRequest(file_name);
         } else if (quit_matcher.find()) {
-            gracefulQuit();
+            gracefulQuit(this.first_pred);
+            gracefulQuit(this.second_pred);
+        } else if (debug_matcher.find()) {
+            System.out.println(String.format("[P2: %s P1: %s S1: %s S2: %s]", this.second_pred, 
+                                            this.first_pred, this.first_succ, this.second_succ));
         }
     }
 
     /**
-     * Initiates a graceful quit procedure for this peer.
+     * Initiates a graceful quit procedure for this peer to the peer with ID receiver.
+     * @param receiver
      */
-    private void gracefulQuit() {
+    private void gracefulQuit(int receiver) {
         try {
-            Socket sendSocket = new Socket("localhost", cdht.getPort(2));
+            // Set up the TCP Socket
+            Socket sendSocket = new Socket("localhost", cdht.getPort(receiver));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
-            String test = "HELLO PEER 2";
-            messageStream.writeBytes(test + "\n");
-            sendSocket.close();
 
+            String quitMessage = null;
+            if (receiver == this.first_pred) {
+                // The first predecessor's successors become the quitting peer's two successors.
+                quitMessage = createQuitMessage(this.first_succ, this.second_succ);
+            } else if (receiver == this.second_pred) {
+                // The second predecessor's successors become the quitting peer's first predecessor and first successor.
+                quitMessage = createQuitMessage(this.first_pred, this.first_succ);
+            } else {
+                System.out.println("Impossible Error just occurred.");
+                System.exit(1);
+            }
+            messageStream.writeBytes(quitMessage + "\n");
+            sendSocket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
     }
+
+    //================TCP PROTOCOL MESSAGE FORMAT=============================//
+    /*
+     * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD]
+     * QUERY TYPE: {GQ: 'Graceful Quit', "FR": 'File Request'}
+     * SENDING PEER ID: {The id of the sender}
+     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC', 
+     *           FR: '[FILENAME]'
+     *          } 
+     */
 
     /**
      * Creates a file request for the desired user input string.
@@ -181,6 +215,20 @@ public class cdht {
      */
     private void createFileRequest(String usr_input) {
         System.out.println("File request for " + usr_input);
+    }
+
+    /**
+     * Creates a TCP protocol meess
+     * The 
+     * @param first_id
+     * @param second_id
+     * @return
+     */
+    private String createQuitMessage(int first_id, int second_id) {
+        String type = "GQ";
+        String from = Integer.toString(this.peer_id);
+        String payload = Integer.toString(first_id) + " " + Integer.toString(second_id);
+        return type + " " + from + " " + payload;
     }
 
     // ================GETTER AND SETTER HELPER FUNCTIONS===========================//
@@ -209,7 +257,7 @@ public class cdht {
      * @return True if the id is the first predecessor.
      */
     public boolean isFirstPredecessor(int id) {
-        return (this.first_predecessor == id);
+        return (this.first_pred == id);
     }
 
     /**
@@ -218,7 +266,7 @@ public class cdht {
      * @return True if the id is the second predecessor.
      */
     public boolean isSecondPredecessor(int id) {
-        return (this.second_predecessor == id);
+        return (this.second_pred == id);
     }
 
     /**
@@ -226,7 +274,7 @@ public class cdht {
      * @param id
      */
     public void setFirstPredecessor(int id) {
-        this.first_predecessor = id;
+        this.first_pred = id;
     }
 
     /**
@@ -234,7 +282,7 @@ public class cdht {
      * @param id
      */
     public void setSecondPredecessor(int id) {
-        this.second_predecessor = id;
+        this.second_pred = id;
     }
 
 }
