@@ -6,17 +6,18 @@ import java.time.LocalDateTime;
 public class PingSenderUDP implements Runnable {
     private static final String threadName = "PingSenderUDP";
     private Thread t;
-    private int sender_id;
-    private int receiver_id;
+    private cdht peer;
+    private boolean first;
+    private volatile boolean shutdown = false;
 
     /**
      * Instantiates a PingSender to send pings over UDP.
-     * @param sender_id
-     * @param receiver_id
+     * @param peer
+     * @param first - if first then we send to the first successor. Otherwise send to the second successor.
      */
-    public PingSenderUDP(int sender_id, int receiver_id) {
-        this.sender_id = sender_id;
-        this.receiver_id = receiver_id;
+    public PingSenderUDP(cdht peer, boolean first) {
+        this.peer = peer;
+        this.first = first;
     }
     
     /**
@@ -24,10 +25,12 @@ public class PingSenderUDP implements Runnable {
      */
     public void run() {
         try {
-            pingLoop(this.receiver_id);
+            while(!shutdown) {
+                sendPing(this.first);
+            }
+            
         } catch (IOException e) {
-            System.err.println(e);
-            System.exit(1);
+            return;
         }
     }
 
@@ -37,8 +40,15 @@ public class PingSenderUDP implements Runnable {
     public void start () {
         if (t == null) {
             t = new Thread (this, threadName);
-            t.start ();
+            t.start();
         }
+    }
+
+    /**
+     * Shuts down the thread.
+     */
+    public void shutdown() {
+        this.shutdown = true;
     }
 
     /**
@@ -46,23 +56,29 @@ public class PingSenderUDP implements Runnable {
      * @param id
      * @throws IOException
      */
-    private void pingLoop(int id) throws IOException {
+    private void sendPing(boolean first) throws IOException {
         // Set the ip to just a local address.
         InetAddress ip = InetAddress.getByName("localhost");
 
         // Stores how many failed pings we have. Once we go over the fail threshold, declare the successor dead.
         int ping_fails = 0;
-
+        int id;
         // Loop indefinitely (leave the ping sender on indefinitely)
         while(true) {
             
+            if (first) {
+                id = this.peer.getFirstSuccessor();
+            } else {
+                id = this.peer.getSecondSuccessor();
+            }
+
             // Create a socket and set a maximum time (TIMEOUT) for which the receiver must send a response.
             DatagramSocket socket = new DatagramSocket();
             socket.setSoTimeout(cdht.SOCKET_TIMEOUT_FREQ);
             
             // Create a bytestream from a ping request to send.
             byte[] ping_buf;
-            String ping_string = createPingRequest(this.sender_id);
+            String ping_string = createPingRequest(peer.getPeer());
             ping_buf = ping_string.getBytes();
             DatagramPacket ping_request = new DatagramPacket(ping_buf,  ping_buf.length, ip, cdht.getPort(id));
             
@@ -87,15 +103,14 @@ public class PingSenderUDP implements Runnable {
                     ping_fails++;
                 }
             }
-            
+            socket.close();
+
             // Wait a while until sending the next set of pings.
             try {
                 Thread.sleep(cdht.PING_FREQ);
             } catch (InterruptedException e) {
                 System.out.println("Sleep interrupted.");
             }
-
-            socket.close();
         }
     }
 

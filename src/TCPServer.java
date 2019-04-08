@@ -9,8 +9,8 @@ public class TCPServer implements Runnable {
     private static final String threadName = "TCPServer";
     private Thread t;
     private cdht peer;
-    private int peer_id;
     private ServerSocket TCPSocket;
+    private volatile boolean shutdown = false;
 
     /**
      * Instantiates the TCP server.
@@ -18,7 +18,6 @@ public class TCPServer implements Runnable {
      */
     public TCPServer(cdht peer) {
         this.peer = peer;
-        this.peer_id = peer.peer_id;
     }
 
     /**
@@ -31,36 +30,34 @@ public class TCPServer implements Runnable {
     /**
      * Starts the thread.
      */
-    public void start () {
+    public void start() {
         if (t == null) {
             t = new Thread (this, threadName);
-            t.start ();
+            t.start();
         }
-    }
-
-    private void startTCPServer() {
-        int port = cdht.getPort(peer_id);
-        try {
-            this.TCPSocket = new ServerSocket(port, 0, InetAddress.getByName("localhost"));
-            while (true) {
-                Socket tcps = TCPSocket.accept();
-                BufferedReader tcp_reader = new BufferedReader(new InputStreamReader(tcps.getInputStream()));
-                String tcp_message = tcp_reader.readLine();
-                System.out.println(tcp_message);
-                parseTCPRequest(tcp_message);
-            }
-
-        } catch (IOException e) {
-            System.err.println(e);
-        }
-        
     }
 
     /**
-     * Closes the TCP Socket attached to the server.
+     * Shuts down the thread by modifying controlling variable.
      */
-    private void closeTCPServer() {
+    public void shutdown() throws IOException {
         this.TCPSocket.close();
+        this.shutdown = true;
+    }
+
+    private void startTCPServer() {
+        int port = cdht.getPort(peer.getPeer());
+        try {
+            this.TCPSocket = new ServerSocket(port, 0, InetAddress.getByName("localhost"));
+            while (!shutdown) {
+                Socket tcps = TCPSocket.accept();
+                BufferedReader tcp_reader = new BufferedReader(new InputStreamReader(tcps.getInputStream()));
+                String tcp_message = tcp_reader.readLine();
+                parseTCPRequest(tcp_message);
+            }
+        } catch (IOException e) {
+            return;
+        }
     }
 
     /**
@@ -72,9 +69,10 @@ public class TCPServer implements Runnable {
         String sending_peer = extractSendingPeer(tcp_message);
         String payload = extractPayload(tcp_message);
 
-        if (message_type == "FR") {
+        if (message_type.equals("FR")) {
             processFileRequest(sending_peer, payload);
-        } else if (message_type == "GQ") {
+        } else if (message_type.equals("GQ")) {
+            System.out.println("here");
             processGracefulQuit(sending_peer, payload);
         }
     }
@@ -94,7 +92,18 @@ public class TCPServer implements Runnable {
      * @param payload
      */
     private void processGracefulQuit(String sending_peer, String payload) {
-        System.out.println("I have received a graceful quit request.");
+        System.out.println(String.format("Peer %s will depart from the network.", sending_peer));
+        
+        // convert the numbers in the payload to integers.
+        int first_pred = Integer.parseInt(payload.split(" ")[0]);
+        int second_pred = Integer.parseInt(payload.split(" ")[1]);
+
+        System.out.println("My first successor is now peer " + first_pred);
+        System.out.println("My second successor is now peer " + second_pred);
+
+        // Update the successors of the peer.
+        this.peer.setFirstSuccessor(first_pred);
+        this.peer.setSecondSuccessor(second_pred);
     }
     
     //====================HELPER FUNCTIONS FOR EXTRACTING TCP MESSAGE DATA==============================//
@@ -125,7 +134,7 @@ public class TCPServer implements Runnable {
         if (tcp_message.length() == 3) {
             return tcp_message.split(" ")[2];
         } else {
-            return tcp_message.split(" ")[2] + tcp_message.split(" ")[3];
+            return tcp_message.split(" ")[2] + " " + tcp_message.split(" ")[3];
         }
     }
 
