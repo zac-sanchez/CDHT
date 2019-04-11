@@ -28,14 +28,13 @@ public class PingSenderUDP implements Runnable {
             while(!shutdown) {
                 sendPing(this.first);
             }
-            
         } catch (IOException e) {
             return;
         }
     }
 
     /**
-     * Starts the thread.
+     *  Starts the thread.
      */
     public void start () {
         if (this.t == null) {
@@ -63,6 +62,7 @@ public class PingSenderUDP implements Runnable {
         // Stores how many failed pings we have. Once we go over the fail threshold, declare the successor dead.
         int ping_fails = 0;
         int id;
+
         // Loop indefinitely (leave the ping sender on indefinitely)
         while(true) {
             
@@ -78,7 +78,7 @@ public class PingSenderUDP implements Runnable {
             
             // Create a bytestream from a ping request to send.
             byte[] ping_buf;
-            String ping_string = createPingRequest(peer.getPeer());
+            String ping_string = createPingRequest(peer.getPeer(), this.first);
             ping_buf = ping_string.getBytes();
             DatagramPacket ping_request = new DatagramPacket(ping_buf,  ping_buf.length, ip, cdht.getPort(id));
             
@@ -88,11 +88,16 @@ public class PingSenderUDP implements Runnable {
 
             // Create a buffer to store the response in.
             byte[] ping_response = new byte[1024];
+            
             try {
                 // Response correctly recevied, read response and print out the response to terminal.
                 DatagramPacket response_packet = new DatagramPacket(ping_response, ping_response.length);
                 socket.receive(response_packet);
+
+                // Reset the failure counter as we have correctly received a ping.
                 ping_fails = 0;
+
+                // Print the response text to stdout.
                 printPingResponse(response_packet);
 
             } catch (SocketTimeoutException e) {
@@ -115,12 +120,18 @@ public class PingSenderUDP implements Runnable {
     }
 
     /**
-     * Creates a ping request string giving information about the sending peer.
-     * @param peer_id
+     * Creates a ping request string giving information about the sending peer to the successor. 
+     * 
+     * Ping format is: [SENDING PEER \ FLAG]
+     * 
+     * Where flag == true => we are sending to the first successor.
+     * 
+     * @param cdht peer
      * @return A ping request string consisting of the peer id.
      */
-    private String createPingRequest(int peer_id) {
-        return "" + peer_id;
+    private String createPingRequest(int peer_id, boolean flag) {
+        int val = flag ? 1 : 0;
+        return peer_id + " " + val;
     }
 
     /**
@@ -133,4 +144,6 @@ public class PingSenderUDP implements Runnable {
         String ping_text = br.readLine().replaceAll("\\s", "");
         System.out.println("A ping response message was received from Peer " + ping_text);
     }
+
+
 }

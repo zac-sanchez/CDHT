@@ -33,7 +33,6 @@ public class cdht {
 
     /**
      * Reads in arguments and initialises threads.
-     * 
      * @param args
      */
     public static void main(String[] args) {
@@ -44,6 +43,7 @@ public class cdht {
                     + " [dropout_probability]");
             System.exit(1);
         }
+        
         try {
             int peer_id = Integer.parseInt(args[0]);
             int first_succ_id = Integer.parseInt(args[1]);
@@ -51,7 +51,6 @@ public class cdht {
             int MSS = Integer.parseInt(args[3]);
             float drop_prob = Float.parseFloat(args[4]);
             peer = new cdht(peer_id, first_succ_id, second_succ_id, MSS, drop_prob);
-
         } catch (NumberFormatException ex) {
             System.err.println("Error parsing arguments.");
             System.exit(1);
@@ -60,8 +59,8 @@ public class cdht {
         // Start the peer and all services.
         peer.initializeThreads();
 
+        // Start loop for reading in terminal input.
         BufferedReader br = null;
-
         while (!peer.shutdown) {
             try {
                 br = new BufferedReader(new InputStreamReader(System.in));
@@ -87,6 +86,7 @@ public class cdht {
         // 0 indicates the first successor ping sending thread.
         this.pingSenderFirst = new PingSenderUDP(this, true);
         this.pingSenderFirst.start();
+
         // 1 indicates the second successor ping sending thread.
         this.pingSenderSecond = new PingSenderUDP(this, false);
         this.pingSenderSecond.start();
@@ -105,46 +105,17 @@ public class cdht {
     }
 
     /**
-     * Updates the predecessors of the peer based on id.
+     * Updates the predecessors of the peer based on id. If first is true, then update first predecessor.
+     * Else update the second predecessor.
      * 
-     * @param id
+     * @param id represents the id of the new predecessor.
+     * @param flag determines which predecessor to update.
      */
-    public void updatePredecessors(int id) {
-
-        if (isPredecessor(id)) {
-            // Potentially due to the scheduling of the threads, we could receive two ping requests in a row
-            // From the same peer. In that case we should just disregard the second one.
-            return;
-        }
-
-        if (this.first_pred == -1) {
-            this.first_pred = id;
-        } else if (this.second_pred == -1) {
-            this.second_pred = id;
-        }
-
-        /*
-        * Logic to get the first predecessor and second predecessor right when updating
-        * predecessors. The predecessors are stored increasing order modulo number of
-        * peers. I.e in the order (from least to greatest) 1 2 3 .. n 1 2 3 .. n ...
-        */
-        
-        if (this.first_pred > this.peer_id && this.second_pred < this.peer_id) {
-            int temp = this.first_pred;
-            this.first_pred = this.second_pred;
-            this.second_pred = temp;
-        } else if (this.first_pred > this.peer_id && this.second_pred > this.peer_id) {
-            if (this.first_pred < this.second_pred) {
-                int temp = this.second_pred;
-                this.second_pred = this.first_pred;
-                this.first_pred = temp;
-            }
-        } else if (this.first_pred < this.peer_id && this.second_pred < this.peer_id) {
-            if (this.first_pred < this.second_pred) {
-                int temp = this.second_pred;
-                this.second_pred = this.first_pred;
-                this.first_pred = temp;
-            }
+    public void updatePredecessors(int id, int first) {
+        if (first == 1) {
+            setFirstPredecessor(id);
+        } else {
+            setSecondPredecessor(id);
         }
     }
 
@@ -245,7 +216,7 @@ public class cdht {
         return type + " " + from + " " + payload;
     }
 
-    // ================GETTER AND SETTER HELPER FUNCTIONS===========================//
+    // =====================HELPER FUNCTIONS===========================//
 
     /**
      * Returns UDP Port for given peer_id
@@ -256,32 +227,49 @@ public class cdht {
         return DEFAULT_PORT + peer_id;
     }
 
+    //========================GETTER METHODS===============================//
+    
     /**
-     * Checks if the given id is a predecessor of the peer.
+     * Gets the first successor of the peer to the given id.
      * @param id
-     * @return True if a predecesssor.
      */
-    public boolean isPredecessor(int id) {
-        return (isFirstPredecessor(id) || isSecondPredecessor(id));
+    public int getFirstSuccessor() {
+        return this.first_succ;
     }
 
     /**
-     * Checks if the given id is the first predecessor of the peer
+     * Gets the second successor of the peer to the given id.
      * @param id
-     * @return True if the id is the first predecessor.
      */
-    public boolean isFirstPredecessor(int id) {
-        return (this.first_pred == id);
+    public int getSecondSuccessor() {
+        return this.second_succ;
+    }
+
+        /**
+     * Gets the first successor of the peer to the given id.
+     * @param id
+     */
+    public int getFirstPredecessor() {
+        return this.first_pred;
     }
 
     /**
-     * Checks if the id is the second predecessor of the peer.
+     * Gets the second successor of the peer to the given id.
      * @param id
-     * @return True if the id is the second predecessor.
      */
-    public boolean isSecondPredecessor(int id) {
-        return (this.second_pred == id);
+    public int getSecondPredecessor() {
+        return this.second_pred;
     }
+    
+    /**
+     * Gets the peer id of the peer.
+     * @param id
+     */
+    public int getPeer() {
+        return this.peer_id;
+    }
+
+    //=======================SETTER METHODS============================//
 
     /**
      * Sets the first predecessor of the peer to the given id.
@@ -313,30 +301,6 @@ public class cdht {
      */
     public void setSecondSuccessor(int id) {
         this.second_succ = id;
-    }
-
-    /**
-     * Gets the first successor of the peer to the given id.
-     * @param id
-     */
-    public int getFirstSuccessor() {
-        return this.first_succ;
-    }
-
-    /**
-     * Gets the second successor of the peer to the given id.
-     * @param id
-     */
-    public int getSecondSuccessor() {
-        return this.second_succ;
-    }
-    
-    /**
-     * Gets the peer id of the peer.
-     * @param id
-     */
-    public int getPeer() {
-        return this.peer_id;
     }
 
 }

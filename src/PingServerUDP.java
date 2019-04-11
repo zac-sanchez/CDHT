@@ -33,17 +33,12 @@ public class PingServerUDP implements Runnable {
                     DatagramPacket request = new DatagramPacket(new byte[1024], 1024);
                     this.UDPSocket.receive(request);
                     try {
-                        // Prints receipt of request from sender.
-                        String str_id = getPacketString(request);
-                        int id = Integer.parseInt(str_id.trim());
-                        printPingReceipt(id);
-                        
-                        // If the id has changed, then update the predecessors.
-                        peer.updatePredecessors(id);
+                        // Handles the ping request by printing receipt to stdout and updating peer's predecessors.
+                       handlePingRequest(request);
 
                         // Send a response to the sender acknowledging the receipt.
                         sendPingResponse(this.UDPSocket, request, Integer.toString(peer.getPeer()));
-                        printPingResponse(Integer.toString(id));
+
                     } catch (IOException e) {
                         System.out.println("Error reading ping.");
                         System.exit(1);
@@ -86,15 +81,24 @@ public class PingServerUDP implements Runnable {
     }
 
     /**
-     * Retrieves the string data sent from a request packet.
+     * Prints a ping receipt to standard output and updates predecessors.
+     * 
      * @param request
-     * @return String of the request.
      * @throws IOException (Should never happen)
      */
-    private String getPacketString(DatagramPacket request) throws IOException{
+    private void handlePingRequest(DatagramPacket request) throws IOException{
+        // Read the ping data into an array.
         byte[] buf = request.getData();
         BufferedReader br = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(buf)));
-        return br.readLine();
+        String[] ping_str_data = br.readLine().trim().split(" ");
+
+        // Convert ping data to an integer array
+        int[] ping_data = new int[2];
+        ping_data[0] = Integer.parseInt(ping_str_data[0]);
+        ping_data[1] = Integer.parseInt(ping_str_data[1]);
+
+        printPingReceipt(ping_data[0]);
+        peer.updatePredecessors(ping_data[0], ping_data[1]);
     }
 
     /**
@@ -116,8 +120,9 @@ public class PingServerUDP implements Runnable {
     /**
      * Prints a response stating that a message has been sent.
      * @param peer_id
+     *
+     * private static void printPingResponse(String peer_id) {
+     *     System.out.println("Sending ping response to Peer " + peer_id);
+     * }
      */
-    private void printPingResponse(String peer_id) {
-        System.out.println("Sending ping response to Peer " + peer_id);
-    }
 }
