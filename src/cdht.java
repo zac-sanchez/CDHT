@@ -197,7 +197,7 @@ public class cdht {
      */
     public void handleDeadPeer(boolean first) {
         if (first) {
-
+            System.out.println("\nDEBUG MESSAGE: FIRST SUCCESSOR IS DEAD.");
             // Print messages to stdout.
             System.out.println(String.format("Ping %d is no longer alive", getFirstSuccessor()));
             System.out.println(String.format("My first successor is now peer %d", getSecondSuccessor()));
@@ -206,17 +206,20 @@ public class cdht {
             setFirstSuccessor(getSecondSuccessor());
             
         } else {
+            System.out.println("\nDEBUG MESSAGE: SECOND SUCCESSOR IS DEAD.");
             // Print messages to stdout.
             System.out.println(String.format("Ping %d is no longer alive", getSecondSuccessor()));
             System.out.println(String.format("My first successor is now peer %d", getFirstSuccessor()));
         }
 
         try {
+            System.out.println("\nDEBUG MESSAGE: CREATING QUERY TO FIND NEW SECOND SUCCESSOR.");
             // Create a TCP Socket to send message to new first successor.
             Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
             // Create the TCP Message and send it.
             String msg = createSuccessorQuery();
+            System.out.println("\nDEBUG MESSAGE: QUERY MESSAGE IS " + msg);
             messageStream.writeBytes(msg);
             sendSocket.close();
         } catch (IOException e) {
@@ -265,10 +268,14 @@ public class cdht {
     private String createSuccessorQuery() {
         // The third field of the TCP message is a "1" because it is a query.
         // The 4th field of the TCP message is a "0" because queries don't know successors.
-     
         return TCPmessageBeginning("DP")+ " " + 1 + " " + 0;
     }
-
+    
+    /**
+     * Helper method for producing the beginning of a TCP message header.
+     * @param type
+     * @return First two fields of a TCP message.
+     */
     private String TCPmessageBeginning(String type) {
         return type + " " + Integer.toString(this.peer_id);
     }

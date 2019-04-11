@@ -1,5 +1,6 @@
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.*;
@@ -14,6 +15,7 @@ public class TCPServer implements Runnable {
 
     /**
      * Instantiates the TCP server.
+     * 
      * @param peer
      */
     public TCPServer(cdht peer) {
@@ -32,7 +34,7 @@ public class TCPServer implements Runnable {
      */
     public void start() {
         if (this.t == null) {
-            this.t = new Thread (this, threadName);
+            this.t = new Thread(this, threadName);
             this.t.start();
         }
     }
@@ -45,6 +47,9 @@ public class TCPServer implements Runnable {
         this.shutdown = true;
     }
 
+    /**
+     * Starts an ongoing TCP server.
+     */
     private void startTCPServer() {
         int port = cdht.getPort(peer.getPeer());
         try {
@@ -62,44 +67,47 @@ public class TCPServer implements Runnable {
 
     /**
      * Parses a TCP message and directs decision to File Request or graceful quit.
+     * 
      * @param tcp_message
      */
     private void parseTCPRequest(String tcp_message) {
 
         String message_type = extractType(tcp_message.trim());
-        String sending_peer = extractSendingPeer(tcp_message.trim());
-        String payload = extractPayload(tcp_message.trim());
+        int[] message_fields = getMessageFields(tcp_message.trim());
 
         if (message_type.equals("FR")) {
-            processFileRequest(sending_peer, payload);
+            processFileRequest(message_fields);
         } else if (message_type.equals("GQ")) {
-            processGracefulQuit(sending_peer, payload);
+            processGracefulQuit(message_fields);
         } else if (message_type.equals("DP")) {
-            processDeadPeer(sending_peer, payload);
+            processDeadPeer(message_fields);
         }
     }
 
     /**
      * Processes a file request from a peer.
+     * 
      * @param sending_peer
      * @param payload
      */
-    private void processFileRequest(String sending_peer, String payload) {
+    private void processFileRequest(int[] message_fields) {
         System.out.println("I have received a file request.");
     }
 
     /**
      * Processes a graceful quit from a peer.
+     * 
      * @param sending_peer
      * @param payload
      */
-    private void processGracefulQuit(String sending_peer, String payload) {
-        System.out.println(String.format("Peer %s will depart from the network.", sending_peer));
-        
-        // convert the numbers in the payload to integers.
-        int first_pred = Integer.parseInt(payload.split(" ")[0]);
-        int second_pred = Integer.parseInt(payload.split(" ")[1]);
+    private void processGracefulQuit(int[] message_fields) {
+        int sending_peer = message_fields[0];
+        int first_pred = message_fields[1];
+        int second_pred = message_fields[2];
 
+        System.out.println(String.format("Peer %s will depart from the network.", sending_peer));
+
+        // convert the numbers in the payload to integers.
         System.out.println("My first successor is now peer " + first_pred);
         System.out.println("My second successor is now peer " + second_pred);
 
@@ -110,31 +118,60 @@ public class TCPServer implements Runnable {
 
     /**
      * Server side handing of the dead peer.
+     * 
      * @param sending_peer
      * @param payload
      */
-    private void processDeadPeer(String sending_peer, String payload) {
-        String[] payload_data = payload.split(" ");
-        int query = Integer.parseInt(payload_data[0]);
-        
-        int new_successor = -1;
-        if (payload_data.length == 2) {
-            new_successor = Integer.parseInt(payload_data[1]);
-        }
+    private void processDeadPeer(int[] message_fields) {
 
-        if (query) {
+        int sending_peer = message_fields[0];
+        int query_flag = message_fields[1];
+        int new_successor = message_fields[2];
+
+        if (query_flag == 1) {
             processQuery(sending_peer);
         } else {
-            processResponse(payload);
+            processKillResponse(new_successor);
         }
     }
 
-    private void processQuery(String sending_peer) {
-        System.out.println(String.format("Responding to %s.", sending_peer));
+    /**
+     * Function to send a TCP response message to a querying peer.
+     * @param sending_peer
+     */
+    private void processQuery(int sending_peer) {
+        // Create a TCP socket to send the
+        try {
+            Socket sendSocket = new Socket("localhost", cdht.getPort(sending_peer));
+            DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+            // Create the TCP Message and send it.
+            String msg = createKillResponse();
+            messageStream.writeBytes(msg);
+            sendSocket.close();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
-    private void processResponse(String payload) {
-        System.out.println(String.format("Processing query %s.", payload));
+    /**
+     * Function to process a TCP kill response that sets the peers new successors.
+     * @param new_successor
+     * @param sending_peer
+     */
+    private void processKillResponse(int new_successor) {
+        System.out.println("My second successor is now peer " + new_successor + ".");
+        this.peer.setSecondSuccessor(new_successor);
+    }
+
+    /**
+     * Function to create a TCP kill response message to send back to querying peer.
+     * @return message in format outlined in cdht "DP". [DP] [sending_peer] [query_flag] [new_successor_id]
+     */
+    private String createKillResponse() {
+        // Creates a responding message with data about peers next sucessor.
+        return "DP" + " " + this.peer.getPeer() + " " + 0 + " " + this.peer.getFirstSuccessor();
     }
     
     //====================HELPER FUNCTIONS FOR EXTRACTING TCP MESSAGE DATA==============================//
@@ -147,25 +184,21 @@ public class TCPServer implements Runnable {
     private String extractType(String tcp_message) {
         return tcp_message.split(" ")[0];
     }
-
-    /**
-     * Retrieves the TCP sending peer from the tcp_message. Refer to TCP message protocol in cdht.java.
-     * @param tcp_message
-     * @return the sending peer as a string.
-     */
-    private String extractSendingPeer(String tcp_message) {
-        return tcp_message.split(" ")[1];
-    }
-
-    /**
-     * Retrieves the TCP payload from the tcp_message. Refer to TCP message protocol in cdht.java.
-     * @return the payload string
-     */
-    private String extractPayload(String tcp_message) {
-        // When there is a payload.
-        return tcp_message.split(" ")[2] + " " + tcp_message.split(" ")[3];
-    }
-
     
+    /**
+     * Extracts the message data from a tcp kill peer message received from another peer.
+     * 
+     * @param tcp_message
+     * @return intger array with the 3 data fields [sending_peer] [query flag] [new successor]
+     */
+    private int[] getMessageFields(String tcp_message) {
+        // 
+        String[] string_fields = tcp_message.split(" ");
+        int[] msg_field_data = new int[3];
 
+        for (int i = 1; i < string_fields.length; i++) {
+            msg_field_data[i-1] = Integer.parseInt(string_fields[i]);
+        }
+        return msg_field_data;
+    }
 }

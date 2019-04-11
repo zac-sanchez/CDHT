@@ -116,13 +116,4 @@ public class PingServerUDP implements Runnable {
                                         request.getPort());
         socket.send(response);
     }
-
-    /**
-     * Prints a response stating that a message has been sent.
-     * @param peer_id
-     *
-     * private static void printPingResponse(String peer_id) {
-     *     System.out.println("Sending ping response to Peer " + peer_id);
-     * }
-     */
 }
