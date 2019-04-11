@@ -7,7 +7,7 @@ public class cdht {
     public static final int DEFAULT_PORT = 50000;
     public static final int PING_FREQ = 20000;
     public static final int SOCKET_TIMEOUT_FREQ = 5000;
-    public static final int MAX_FAILS = 4;
+    public static final int MAX_FAILS = 2;
 
     private int peer_id;
     private int first_succ;
@@ -37,13 +37,12 @@ public class cdht {
      */
     public static void main(String[] args) {
         cdht peer = null;
-
         if (args.length != 5) {
             System.err.println("Must specify arguments [peer_id] [first_successor_id] [second_successor_id] [MSS]"
                     + " [dropout_probability]");
             System.exit(1);
         }
-        
+
         try {
             int peer_id = Integer.parseInt(args[0]);
             int first_succ_id = Integer.parseInt(args[1]);
@@ -196,38 +195,44 @@ public class cdht {
      * 
      * @param first flag for whether the failed peer is a first successor or not.
      */
-    public void handleDeadPeers(boolean first) {
+    public void handleDeadPeer(boolean first) {
         if (first) {
 
             // Print messages to stdout.
             System.out.println(String.format("Ping %d is no longer alive", getFirstSuccessor()));
             System.out.println(String.format("My first successor is now peer %d", getSecondSuccessor()));
 
-            // Set the first successor as the second successor.
+            // Set the first successor as the second successor if the first successor died.
             setFirstSuccessor(getSecondSuccessor());
-
             
-            try {
-                // Create a TCP Socket to send message to new first successor.
-                Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
-                DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+        } else {
+            // Print messages to stdout.
+            System.out.println(String.format("Ping %d is no longer alive", getSecondSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d", getFirstSuccessor()));
+        }
 
-
-            } catch (IOException e) {
-                e.printStackTrace();
-                return;
-            }
+        try {
+            // Create a TCP Socket to send message to new first successor.
+            Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
+            DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+            // Create the TCP Message and send it.
+            String msg = createSuccessorQuery();
+            messageStream.writeBytes(msg);
+            sendSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
         }
     }
 
     //================TCP PROTOCOL MESSAGE FORMAT=============================//
     /*
-     * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD]
+     * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD FIELD 1] [PAYLOAD FIELD 2]
      * QUERY TYPE: {GQ: 'Graceful Quit', "FR": 'File Request'}
      * SENDING PEER ID: {The id of the sender}
-     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC', 
-     *           FR: '[FILENAME]'
-     *           DP: '[FLAG] [IF FLAG = 0: ID OF SUCCESSOR]'
+     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC]', 
+     *           FR: '[FILENAME] [0]'
+     *           DP: '[QUERY FLAG] [IF FLAG = 0: ID OF SUCCESSOR, ELSE 0]'
      *          } 
      */
 
@@ -254,20 +259,14 @@ public class cdht {
 
     /**
      * Creates a dead peer TCP message as either a query or a response.
-     * @param flag if flag = true it is a query, else it is a response.
+     * @param flag if flag = true it is a first successor.
      * @return
      */
-    private String createDeadPeerMessage(boolean flag) {
-        String return_string = TCPmessageBeginning("DP");
-        int val = flag ? 1 : 0;
-        if (flag) {
-            // If it is a query message, just send the query with no data to our first successor.
-            return return_string + " " + val;
-        } else {
-
-            // If it is a response message, we have to send to the querying peer who our first successor is.
-            return return_string + " " + val + " " + getFirstSuccessor();
-        }
+    private String createSuccessorQuery() {
+        // The third field of the TCP message is a "1" because it is a query.
+        // The 4th field of the TCP message is a "0" because queries don't know successors.
+     
+        return TCPmessageBeginning("DP")+ " " + 1 + " " + 0;
     }
 
     private String TCPmessageBeginning(String type) {

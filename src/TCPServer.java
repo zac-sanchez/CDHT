@@ -52,7 +52,7 @@ public class TCPServer implements Runnable {
             while (!shutdown) {
                 Socket tcps = TCPSocket.accept();
                 BufferedReader tcp_reader = new BufferedReader(new InputStreamReader(tcps.getInputStream()));
-                String tcp_message = tcp_reader.readLine();
+                String tcp_message = tcp_reader.readLine().trim();
                 parseTCPRequest(tcp_message);
             }
         } catch (IOException e) {
@@ -65,15 +65,17 @@ public class TCPServer implements Runnable {
      * @param tcp_message
      */
     private void parseTCPRequest(String tcp_message) {
-        String message_type = extractType(tcp_message);
-        String sending_peer = extractSendingPeer(tcp_message);
-        String payload = extractPayload(tcp_message);
+
+        String message_type = extractType(tcp_message.trim());
+        String sending_peer = extractSendingPeer(tcp_message.trim());
+        String payload = extractPayload(tcp_message.trim());
 
         if (message_type.equals("FR")) {
             processFileRequest(sending_peer, payload);
         } else if (message_type.equals("GQ")) {
-            System.out.println("here");
             processGracefulQuit(sending_peer, payload);
+        } else if (message_type.equals("DP")) {
+            processDeadPeer(sending_peer, payload);
         }
     }
 
@@ -105,6 +107,35 @@ public class TCPServer implements Runnable {
         this.peer.setFirstSuccessor(first_pred);
         this.peer.setSecondSuccessor(second_pred);
     }
+
+    /**
+     * Server side handing of the dead peer.
+     * @param sending_peer
+     * @param payload
+     */
+    private void processDeadPeer(String sending_peer, String payload) {
+        String[] payload_data = payload.split(" ");
+        int query = Integer.parseInt(payload_data[0]);
+        
+        int new_successor = -1;
+        if (payload_data.length == 2) {
+            new_successor = Integer.parseInt(payload_data[1]);
+        }
+
+        if (query) {
+            processQuery(sending_peer);
+        } else {
+            processResponse(payload);
+        }
+    }
+
+    private void processQuery(String sending_peer) {
+        System.out.println(String.format("Responding to %s.", sending_peer));
+    }
+
+    private void processResponse(String payload) {
+        System.out.println(String.format("Processing query %s.", payload));
+    }
     
     //====================HELPER FUNCTIONS FOR EXTRACTING TCP MESSAGE DATA==============================//
 
@@ -131,11 +162,8 @@ public class TCPServer implements Runnable {
      * @return the payload string
      */
     private String extractPayload(String tcp_message) {
-        if (tcp_message.length() == 3) {
-            return tcp_message.split(" ")[2];
-        } else {
-            return tcp_message.split(" ")[2] + " " + tcp_message.split(" ")[3];
-        }
+        // When there is a payload.
+        return tcp_message.split(" ")[2] + " " + tcp_message.split(" ")[3];
     }
 
     
