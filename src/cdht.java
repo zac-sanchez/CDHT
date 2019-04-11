@@ -96,11 +96,17 @@ public class cdht {
         this.tcpServer.start();
     }
 
-    private void killThreads() throws IOException {
+    private void killThreads() {
         this.pingServer.shutdown();
         this.pingSenderFirst.shutdown();
         this.pingSenderSecond.shutdown();
-        this.tcpServer.shutdown();
+
+        try {
+            this.tcpServer.shutdown();
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
+        }
         this.shutdown = true;
     }
 
@@ -149,6 +155,7 @@ public class cdht {
         } else if (quit_matcher.find()) {
             gracefulQuit(this.first_pred);
             gracefulQuit(this.second_pred);
+            killThreads();
         } else if (debug_matcher.find()) {
             System.out.println(String.format("[P2: %s P1: %s S1: %s S2: %s]", this.second_pred, 
                                             this.first_pred, this.first_succ, this.second_succ));
@@ -168,19 +175,48 @@ public class cdht {
             String quitMessage = null;
             if (receiver == this.first_pred) {
                 // The first predecessor's successors become the quitting peer's two successors.
-                quitMessage = createQuitMessage(this.first_succ, this.second_succ);
+                quitMessage = createGracefulQuitMessage(this.first_succ, this.second_succ);
             } else if (receiver == this.second_pred) {
                 // The second predecessor's successors become the quitting peer's first predecessor and first successor.
-                quitMessage = createQuitMessage(this.first_pred, this.first_succ);
+                quitMessage = createGracefulQuitMessage(this.first_pred, this.first_succ);
             } else {
                 System.out.println("Impossible Error just occurred.");
                 System.exit(1);
             }
             messageStream.writeBytes(quitMessage + "\n");
             sendSocket.close();
-            killThreads();
         } catch (IOException e) {
             e.printStackTrace();
+        }
+    }
+
+    /**
+     * Handles when a peer has failed to return MAX_FAILS pings and is assumed dead. We have to update successors
+     * accordingly.
+     * 
+     * @param first flag for whether the failed peer is a first successor or not.
+     */
+    public void handleDeadPeers(boolean first) {
+        if (first) {
+
+            // Print messages to stdout.
+            System.out.println(String.format("Ping %d is no longer alive", getFirstSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d", getSecondSuccessor()));
+
+            // Set the first successor as the second successor.
+            setFirstSuccessor(getSecondSuccessor());
+
+            
+            try {
+                // Create a TCP Socket to send message to new first successor.
+                Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
+                DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+
+
+            } catch (IOException e) {
+                e.printStackTrace();
+                return;
+            }
         }
     }
 
@@ -191,6 +227,7 @@ public class cdht {
      * SENDING PEER ID: {The id of the sender}
      * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC', 
      *           FR: '[FILENAME]'
+     *           DP: '[FLAG] [IF FLAG = 0: ID OF SUCCESSOR]'
      *          } 
      */
 
@@ -198,6 +235,7 @@ public class cdht {
      * Creates a file request for the desired user input string.
      * @param usr_input
      */
+
     private void createFileRequest(String usr_input) {
         System.out.println("File request for " + usr_input);
     }
@@ -209,11 +247,31 @@ public class cdht {
      * @param second_id
      * @return
      */
-    private String createQuitMessage(int first_id, int second_id) {
-        String type = "GQ";
-        String from = Integer.toString(this.peer_id);
+    private String createGracefulQuitMessage(int first_id, int second_id) {
         String payload = Integer.toString(first_id) + " " + Integer.toString(second_id);
-        return type + " " + from + " " + payload;
+        return TCPmessageBeginning("GQ") + " " + payload;
+    }
+
+    /**
+     * Creates a dead peer TCP message as either a query or a response.
+     * @param flag if flag = true it is a query, else it is a response.
+     * @return
+     */
+    private String createDeadPeerMessage(boolean flag) {
+        String return_string = TCPmessageBeginning("DP");
+        int val = flag ? 1 : 0;
+        if (flag) {
+            // If it is a query message, just send the query with no data to our first successor.
+            return return_string + " " + val;
+        } else {
+
+            // If it is a response message, we have to send to the querying peer who our first successor is.
+            return return_string + " " + val + " " + getFirstSuccessor();
+        }
+    }
+
+    private String TCPmessageBeginning(String type) {
+        return type + " " + Integer.toString(this.peer_id);
     }
 
     // =====================HELPER FUNCTIONS===========================//

@@ -40,12 +40,12 @@ public class PingServerUDP implements Runnable {
                         sendPingResponse(this.UDPSocket, request, Integer.toString(peer.getPeer()));
 
                     } catch (IOException e) {
-                        System.out.println("Error reading ping.");
-                        System.exit(1);
+                        e.printStackTrace();
+                        continue;
                     }
                 } catch (IOException e){
-                    System.err.println(e);
-                    System.exit(1);
+                    e.printStackTrace();
+                    continue;
                 }
 
             }

@@ -101,9 +101,9 @@ public class PingSenderUDP implements Runnable {
                 printPingResponse(response_packet);
 
             } catch (SocketTimeoutException e) {
-                // No response has been received. Incremement the # of fails, or update sucessors as the peer is dead.
+                // No response has been received. Incremement the # of fails, or deal with dead peers.
                 if (ping_fails >= cdht.MAX_FAILS) {
-                    System.out.println("Someone died. RIP.");
+                    peer.handleDeadPeer(this.first);
                 } else {
                     ping_fails++;
                 }
@@ -144,6 +144,4 @@ public class PingSenderUDP implements Runnable {
         String ping_text = br.readLine().replaceAll("\\s", "");
         System.out.println("A ping response message was received from Peer " + ping_text);
     }
-
-
 }
