@@ -86,18 +86,26 @@ public class TCPServer implements Runnable {
     /**
      * Processes a file request from a peer.
      * 
-     * @param sending_peer
-     * @param payload
+     * @param message_fields an array of three integers that store [sending_peer] [file_name] [has_file]
      */
     private void processFileRequest(int[] message_fields) {
-        System.out.println("I have received a file request.");
+        int sending_peer = message_fields[0];
+        int file_name = message_fields[1];
+        int has_file = message_fields[2];
+
+        if (has_file == 1) {
+            this.peer.beginFileTransfer();
+        } else {
+            System.out.println("File " + file_name + " is not stored here.");
+            System.out.println("File request mesage has been forwarded to my successor.");
+            this.peer.fileRequest(file_name, sending_peer);
+        }
     }
 
     /**
      * Processes a graceful quit from a peer.
      * 
-     * @param sending_peer
-     * @param payload
+     * @param message_fields an array of three integers that store [sending_peer] [first_pred] [second_pred]
      */
     private void processGracefulQuit(int[] message_fields) {
         int sending_peer = message_fields[0];
@@ -118,8 +126,7 @@ public class TCPServer implements Runnable {
     /**
      * Server side handing of the dead peer.
      * 
-     * @param sending_peer
-     * @param payload
+     * @param message_fields an array of three integers that store [sending_peer] [query_flag] [new_successor]
      */
     private void processDeadPeer(int[] message_fields) {
 

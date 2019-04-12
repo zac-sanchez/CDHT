@@ -149,15 +149,50 @@ public class cdht {
 
         if (file_matcher.find()) {
             // Grab the second element from the string split (the 4 numbers)
-            String file_name = usr_input.split(" ")[1];
-            createFileRequest(file_name);
+            int file_name = Integer.parseInt(usr_input.split(" ")[1]);
+            
+            // Edge case for when peer requests a file of the same hash as its peer id, don't initiate any sending.
+            if (file_name % 256 == this.getPeer()) {
+                System.out.println("File is already stored at this peer!");
+                return;
+            }
+
+            // Initiate file request procedure.
+            System.out.println("File request message for " + file_name + " has been sent to my successor.");
+            fileRequest(file_name, this.getPeer());
+
         } else if (quit_matcher.find()) {
+            // Send messages the both predecessors and kill running threads.
             gracefulQuit(this.first_pred);
             gracefulQuit(this.second_pred);
             killThreads();
+
         } else if (debug_matcher.find()) {
+            // Used to debug state information.
             System.out.println(String.format("[P2: %s P1: %s S1: %s S2: %s]", this.second_pred, 
                                             this.first_pred, this.first_succ, this.second_succ));
+        }
+    }
+
+    /**
+     * Initiates a file request procedure for a file with given filename.
+     * 
+     * @param hash hashed value of the filename.
+     */
+    public void fileRequest(int file_name, int sending_peer) {
+        try {
+            // Set up the TCP Socket
+            Socket sendSocket = new Socket("localhost", cdht.getPort(this.getFirstSuccessor()));
+            DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+
+            //Send the request message to the first successor.
+            String file_request_msg = createFileRequest(file_name, sending_peer);
+            messageStream.writeBytes(file_request_msg);
+            sendSocket.close();
+
+        } catch (IOException e) {
+            e.printStackTrace();
+            return;
         }
     }
 
@@ -197,29 +232,25 @@ public class cdht {
      */
     public void handleDeadPeer(boolean first) {
         if (first) {
-            System.out.println("\nDEBUG MESSAGE: FIRST SUCCESSOR IS DEAD.");
             // Print messages to stdout.
-            System.out.println(String.format("Ping %d is no longer alive", getFirstSuccessor()));
-            System.out.println(String.format("My first successor is now peer %d", getSecondSuccessor()));
+            System.out.println(String.format("Peer %d is no longer alive", getFirstSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d.", getSecondSuccessor()));
 
             // Set the first successor as the second successor if the first successor died.
             setFirstSuccessor(getSecondSuccessor());
             
         } else {
-            System.out.println("\nDEBUG MESSAGE: SECOND SUCCESSOR IS DEAD.");
             // Print messages to stdout.
-            System.out.println(String.format("Ping %d is no longer alive", getSecondSuccessor()));
-            System.out.println(String.format("My first successor is now peer %d", getFirstSuccessor()));
+            System.out.println(String.format("Peer %d is no longer alive.", getSecondSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d.", getFirstSuccessor()));
         }
 
         try {
-            System.out.println("\nDEBUG MESSAGE: CREATING QUERY TO FIND NEW SECOND SUCCESSOR.");
             // Create a TCP Socket to send message to new first successor.
             Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
             // Create the TCP Message and send it.
             String msg = createSuccessorQuery();
-            System.out.println("\nDEBUG MESSAGE: QUERY MESSAGE IS " + msg);
             messageStream.writeBytes(msg);
             sendSocket.close();
         } catch (IOException e) {
@@ -234,25 +265,34 @@ public class cdht {
      * QUERY TYPE: {GQ: 'Graceful Quit', "FR": 'File Request'}
      * SENDING PEER ID: {The id of the sender}
      * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC]', 
-     *           FR: '[FILENAME] [0]'
+     *           FR: '[FILE HASH] [FLAG => true if successor has the file.]'
      *           DP: '[QUERY FLAG] [IF FLAG = 0: ID OF SUCCESSOR, ELSE 0]'
      *          } 
      */
 
+    //================TCP MESSAGE FUNCTIONS==================================//
+    
     /**
-     * Creates a file request for the desired user input string.
-     * @param usr_input
+     * Creates a file request message for the desired filename.
+     * 
+     * @param filename
+     * @return
      */
-
-    private void createFileRequest(String usr_input) {
-        System.out.println("File request for " + usr_input);
+    private String createFileRequest(int file_name, int sending_peer) {
+        // Computes the hash of the filename.
+        int hash = file_name % 256;
+        // Checks if the successor has the file.
+        boolean has_file = successorHasFile(hash);
+        int val = has_file ? 1 : 0;
+        // Constructs the TCP message in format above.
+        return "FR " + sending_peer + " " + file_name + " " + val;
     }
 
     /**
-     * Creates a TCP protocol meess
-     * The 
-     * @param first_id
-     * @param second_id
+     * Creates a TCP protocol message for graceful quitting
+     * 
+     * @param first_id new first successor
+     * @param second_id new second successor.
      * @return
      */
     private String createGracefulQuitMessage(int first_id, int second_id) {
@@ -280,7 +320,7 @@ public class cdht {
         return type + " " + Integer.toString(this.peer_id);
     }
 
-    // =====================HELPER FUNCTIONS===========================//
+    // =====================STATIC HELPER FUNCTIONS===========================//
 
     /**
      * Returns UDP Port for given peer_id
@@ -289,6 +329,30 @@ public class cdht {
      */
     public static int getPort(int peer_id) {
         return DEFAULT_PORT + peer_id;
+    }
+
+    public void beginFileTransfer() {
+        System.out.println("I have the file. Beginning File Transfer.");
+    }
+
+    /**
+     * Returns true if this peer's successor has the file. 
+     * @param hash
+     * @return boolean.
+     */
+    public boolean successorHasFile(int hash) {
+        /**
+         * Three cases.
+         * 
+         * Case 0: E.g peer = 1 hash = 3 successor = 3. => peer 3 owns it.
+         * Case 1: E.g peer = 1 hash = 2 successor = 3. => peer 3 owns it.
+         * Case 2: E.g peer = 15 hash = 220 successor = 1. => peer 1 owns it.
+         * Case 3: E.g peer = 15 hash = 0 successor = 1. => peer 1 owns it.
+         */
+        return (this.getPeer() < this.getFirstSuccessor() && hash == this.getFirstSuccessor() || 
+                this.getPeer() < this.getFirstSuccessor() && hash < this.getFirstSuccessor() && hash > this.getPeer() ||
+                this.getPeer() > this.getFirstSuccessor() && hash > this.getPeer() && hash > this.getFirstSuccessor() ||
+                this.getPeer() > this.getFirstSuccessor() && hash < this.getPeer() && hash < this.getFirstSuccessor());
     }
 
     //========================GETTER METHODS===============================//
