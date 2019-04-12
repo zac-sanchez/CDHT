@@ -1,5 +1,4 @@
 import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
 import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
@@ -129,7 +128,7 @@ public class TCPServer implements Runnable {
         int new_successor = message_fields[2];
 
         if (query_flag == 1) {
-            processQuery(sending_peer);
+            processKillQuery(sending_peer);
         } else {
             processKillResponse(new_successor);
         }
@@ -139,7 +138,7 @@ public class TCPServer implements Runnable {
      * Function to send a TCP response message to a querying peer.
      * @param sending_peer
      */
-    private void processQuery(int sending_peer) {
+    private void processKillQuery(int sending_peer) {
         // Create a TCP socket to send the
         try {
             Socket sendSocket = new Socket("localhost", cdht.getPort(sending_peer));
