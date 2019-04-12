@@ -185,15 +185,19 @@ public class cdht {
             Socket sendSocket = new Socket("localhost", cdht.getPort(this.getFirstSuccessor()));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
 
-            //Send the request message to the first successor.
-            String file_request_msg = createFileRequest(file_name, sending_peer);
+            //Send the request message to the first successor. Third parameter = 1 => it is a query.
+            String file_request_msg = createFileRequest(file_name, sending_peer, 1);
             messageStream.writeBytes(file_request_msg);
             sendSocket.close();
-
         } catch (IOException e) {
             e.printStackTrace();
             return;
         }
+    }
+
+    
+    public void beginFileTransfer(int sending_peer, int file_name) {
+        System.out.println("File " + file_name + " is stored here.");
     }
 
     /**
@@ -261,12 +265,12 @@ public class cdht {
 
     //================TCP PROTOCOL MESSAGE FORMAT=============================//
     /*
-     * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD FIELD 1] [PAYLOAD FIELD 2]
+     * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD FIELD 1] [PAYLOAD FIELD 2] [PAYLOAD FIELD 3]
      * QUERY TYPE: {GQ: 'Graceful Quit', "FR": 'File Request'}
      * SENDING PEER ID: {The id of the sender}
-     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC]', 
-     *           FR: '[FILE HASH] [FLAG => true if successor has the file.]'
-     *           DP: '[QUERY FLAG] [IF FLAG = 0: ID OF SUCCESSOR, ELSE 0]'
+     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC] [0]', 
+     *           FR: '[FILE NAME] [FLAG => true if successor has the file.] [QUERY FLAG = 1 if query]'
+     *           DP: '[QUERY FLAG] [IF FLAG = 0: ID OF SUCCESSOR, ELSE 0] [0]'
      *          } 
      */
 
@@ -275,17 +279,19 @@ public class cdht {
     /**
      * Creates a file request message for the desired filename.
      * 
-     * @param filename
+     * @param file_name integer name of the file.
+     * @param sending_peer id of the peer who sent the query.
+     * @param query flag for telling whether the message is a query or response.
      * @return
      */
-    private String createFileRequest(int file_name, int sending_peer) {
+    private String createFileRequest(int file_name, int sending_peer, int query) {
         // Computes the hash of the filename.
         int hash = file_name % 256;
         // Checks if the successor has the file.
         boolean has_file = successorHasFile(hash);
         int val = has_file ? 1 : 0;
         // Constructs the TCP message in format above.
-        return "FR " + sending_peer + " " + file_name + " " + val;
+        return "FR " + sending_peer + " " + file_name + " " + val + " " + query;
     }
 
     /**
@@ -296,7 +302,7 @@ public class cdht {
      * @return
      */
     private String createGracefulQuitMessage(int first_id, int second_id) {
-        String payload = Integer.toString(first_id) + " " + Integer.toString(second_id);
+        String payload = Integer.toString(first_id) + " " + Integer.toString(second_id) + " " + 0;
         return TCPmessageBeginning("GQ") + " " + payload;
     }
 
@@ -308,7 +314,7 @@ public class cdht {
     private String createSuccessorQuery() {
         // The third field of the TCP message is a "1" because it is a query.
         // The 4th field of the TCP message is a "0" because queries don't know successors.
-        return TCPmessageBeginning("DP")+ " " + 1 + " " + 0;
+        return TCPmessageBeginning("DP")+ " " + 1 + " " + 0 + " " + 0;
     }
     
     /**
@@ -329,10 +335,6 @@ public class cdht {
      */
     public static int getPort(int peer_id) {
         return DEFAULT_PORT + peer_id;
-    }
-
-    public void beginFileTransfer() {
-        System.out.println("I have the file. Beginning File Transfer.");
     }
 
     /**

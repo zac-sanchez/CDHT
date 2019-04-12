@@ -92,13 +92,24 @@ public class TCPServer implements Runnable {
         int sending_peer = message_fields[0];
         int file_name = message_fields[1];
         int has_file = message_fields[2];
+        int query = message_fields[3];
 
-        if (has_file == 1) {
-            this.peer.beginFileTransfer();
+        if (query == 1) {
+            // The message was a query.
+            if (has_file == 1) {
+                // If we have the file then send a response to the sending peer.
+                this.sendResponseMessage(sending_peer, file_name);
+                this.peer.beginFileTransfer(sending_peer, file_name);
+            } else {
+                System.out.println("File " + file_name + " is not stored here.");
+                System.out.println("File request mesage has been forwarded to my successor.");
+                this.peer.fileRequest(file_name, sending_peer);
+            }
         } else {
-            System.out.println("File " + file_name + " is not stored here.");
-            System.out.println("File request mesage has been forwarded to my successor.");
-            this.peer.fileRequest(file_name, sending_peer);
+            // The message was a response message.
+            System.out.println("Received a response message from peer " + sending_peer +
+                               " which has the file " + file_name + ".");
+            System.out.println("We now start receiving the file...");
         }
     }
 
@@ -139,6 +150,33 @@ public class TCPServer implements Runnable {
         } else {
             processKillResponse(new_successor);
         }
+    }
+
+    /**
+     * Sends a TCP Response message for a file request.
+     * 
+     * @param sending_peer The peer id of the requesting peer.
+     * @param file_name The name of the file to be transferred.
+     */
+    private void sendResponseMessage(int sending_peer, int file_name) {
+        System.out.println("A response message, destined for peer " + sending_peer + ", has been sent.");
+        try {
+            Socket sendSocket = new Socket("localhost", cdht.getPort(sending_peer));
+            DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+            // Create the TCP Message and send it.
+            String msg = createFileResponse(sending_peer, file_name);
+            messageStream.writeBytes(msg);
+            sendSocket.close();
+        } catch (UnknownHostException e) {
+            e.printStackTrace();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String createFileResponse(int sending_peer, int file_name) {
+        // FR [peer_id] [file_name] [1 (empty value for has_file)] [0 => it is a resopnse message]
+        return "FR " + peer.getPeer() + " " + file_name + " " + 1 + " " + 0;
     }
 
     /**
@@ -200,7 +238,7 @@ public class TCPServer implements Runnable {
     private int[] getMessageFields(String tcp_message) {
         // 
         String[] string_fields = tcp_message.split(" ");
-        int[] msg_field_data = new int[3];
+        int[] msg_field_data = new int[string_fields.length];
 
         for (int i = 1; i < string_fields.length; i++) {
             msg_field_data[i-1] = Integer.parseInt(string_fields[i]);
