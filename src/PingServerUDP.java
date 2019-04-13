@@ -1,20 +1,18 @@
-import java.io.BufferedReader;
-import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
 import java.net.*;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalTime;
 
 public class PingServerUDP implements Runnable {
 
     private static final String threadName = "PingServerUDP";
     private Thread t;
     private cdht peer;
-    private DatagramSocket UDPSocket;
+    private DatagramSocket udpSocket;
     private FileOutputStream fos = null;
     private volatile boolean shutdown = false;
+    private PrintWriter requesting;
 
     /**
      * Instantiates a ping server.
@@ -31,12 +29,12 @@ public class PingServerUDP implements Runnable {
     public void run() {
         try {
             // Create a new UDP socket with the given port.
-            this.UDPSocket = new DatagramSocket(cdht.getPort(peer.getPeer()));
-            while (!shutdown) {
+            this.udpSocket = new DatagramSocket(cdht.getPort(peer.getPeer()));
+            while (!this.shutdown) {
                 // Read in a request through the socket.
                 DatagramPacket request = new DatagramPacket(new byte[peer.getMSS() + cdht.TRANSFER_HEADER_LEN],
                         peer.getMSS() + cdht.TRANSFER_HEADER_LEN);
-                this.UDPSocket.receive(request);
+                this.udpSocket.receive(request);
 
                 // Handles the UDP packet based on whether it is a ping or a file send.
                 handlePacket(request);
@@ -62,7 +60,7 @@ public class PingServerUDP implements Runnable {
      * Shuts down the thread.
      */
     public void shutdown() {
-        this.UDPSocket.close();
+        this.udpSocket.close();
         this.shutdown = true;
     }
 
@@ -87,8 +85,8 @@ public class PingServerUDP implements Runnable {
                 String header = new String(header_buf);
                 String[] header_data = header.trim().split(" ");
 
-                int sending_peer = Integer.parseInt(header_data[1]);
-                int num_bytes_transferred = Integer.parseInt(header_data[2]);
+                int seq_num = Integer.parseInt(header_data[1]);
+                int num_bytes_sent = Integer.parseInt(header_data[2]);
                 int eof_flag = Integer.parseInt(header_data[3]);
 
                 // Grab ip and port information from sending peer.
@@ -96,15 +94,20 @@ public class PingServerUDP implements Runnable {
                 int port = request.getPort();
 
                 if (this.fos == null) {
-                    System.out.println("WRITING TO NEW FILE");
                     this.fos = new FileOutputStream("received_file.pdf");
+                    this.requesting = new PrintWriter("requesting_log.txt");
                 }
-                receiveFilePacket(request, eof_flag, num_bytes_transferred);
-                ackFilePacket(sending_peer, num_bytes_transferred, ip, port);
+                receiveFilePacket(request, eof_flag);
+                Duration time_diff = Duration.between(peer.time, Instant.now());
+                this.requesting.println(cdht.write_log_text("rcv", time_diff.toMillis(), 
+                                                            seq_num, num_bytes_sent, 0));
+                ackFilePacket(seq_num, num_bytes_sent, ip, port);
+                this.requesting.println(cdht.write_log_text("snd", time_diff.toMillis(), 
+                                                            0, num_bytes_sent, seq_num+num_bytes_sent));
             } else if (new String(type_buf).equals("PG")) {
                 // Print ping request and send a response back to the sender.
                 printPingRequest(request);
-                sendPingResponse(this.UDPSocket, request, Integer.toString(peer.getPeer()));
+                sendPingResponse(this.udpSocket, request, Integer.toString(peer.getPeer()));
             }
         } catch (FileNotFoundException e) {
             return;
@@ -112,12 +115,14 @@ public class PingServerUDP implements Runnable {
         
     }
 
-    private void receiveFilePacket(DatagramPacket request, int eof_flag, int num_bytes_transferred) {
+    private void receiveFilePacket(DatagramPacket request, int eof_flag) {
         try {
             this.fos.write(request.getData(), cdht.TRANSFER_HEADER_LEN, request.getLength() - cdht.TRANSFER_HEADER_LEN);
+
             if (eof_flag == 1) {
                 System.out.println("The file is received.");
                 this.fos.close();
+                this.requesting.close();
                 this.fos = null;
             }
         } catch (IOException e) {
@@ -129,14 +134,14 @@ public class PingServerUDP implements Runnable {
      * UDP ACK FORMAT: [ACK] [ACK_NUM]
      * 
      * @param sending_peer who to send the ACK to.
-     * @param num_bytes_transferred how many bytes were read (used for sequence numbers).
+     * @param num_bytes_sent how many bytes were read (used for sequence numbers).
      */
-    private void ackFilePacket(int sending_peer, int num_bytes_transferred, InetAddress ip, int port) {
-        String ack = "ACK" + " " + sending_peer + " " + num_bytes_transferred;
+    private void ackFilePacket(int seq_num, int num_bytes_sent, InetAddress ip, int port) {
+        String ack = "ACK" + " " + seq_num + " " + num_bytes_sent;
         byte[] ack_bytes = ack.getBytes();
         DatagramPacket ack_pkt = new DatagramPacket(ack_bytes, ack_bytes.length, ip, port);
         try {
-            this.UDPSocket.send(ack_pkt);
+            this.udpSocket.send(ack_pkt);
         } catch (IOException e) {
             e.printStackTrace();
             return;

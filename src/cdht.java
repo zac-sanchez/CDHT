@@ -1,6 +1,7 @@
 import java.net.*;
 import java.io.*;
 import java.util.regex.*;
+import java.time.Instant;
 
 public class cdht {
     public static final int TRANSFER_HEADER_LEN = 20;
@@ -14,6 +15,7 @@ public class cdht {
     private int second_succ;
     private int first_pred = -1;
     private int second_pred = -1;
+    public Instant time;
 
     private int MSS;
     private float drop_prob;
@@ -29,10 +31,12 @@ public class cdht {
         this.second_succ = second_succ_id;
         this.MSS = MSS;
         this.drop_prob = drop_prob;
+        this.time = Instant.now();
     }
 
     /**
      * Reads in arguments and initialises threads.
+     * 
      * @param args
      */
     public static void main(String[] args) {
@@ -94,25 +98,11 @@ public class cdht {
         this.tcpServer.start();
     }
 
-    private void killThreads() {
-        this.pingServer.shutdown();
-        this.pingSenderFirst.shutdown();
-        this.pingSenderSecond.shutdown();
-
-        try {
-            this.tcpServer.shutdown();
-        } catch (IOException e) {
-            e.printStackTrace();
-            return;
-        }
-        this.shutdown = true;
-    }
-
     /**
-     * Updates the predecessors of the peer based on id. If first is true, then update first predecessor.
-     * Else update the second predecessor.
+     * Updates the predecessors of the peer based on id. If first is true, then
+     * update first predecessor. Else update the second predecessor.
      * 
-     * @param id represents the id of the new predecessor.
+     * @param id   represents the id of the new predecessor.
      * @param flag determines which predecessor to update.
      */
     public void updatePredecessors(int id, int first) {
@@ -123,7 +113,8 @@ public class cdht {
         }
     }
 
-    // =================OTHER UTILITY FUNCTIONS======================================//
+    // =================OTHER UTILITY
+    // FUNCTIONS======================================//
 
     /**
      * Parses the user input and directs decision to either the graceful quit
@@ -146,11 +137,13 @@ public class cdht {
         Matcher quit_matcher = quit_pattern.matcher(usr_input);
         Matcher debug_matcher = debug_pattern.matcher(usr_input);
 
+        // FILE REQUEST INPUT MATCH
         if (file_matcher.find()) {
             // Grab the second element from the string split (the 4 numbers)
             int file_name = Integer.parseInt(usr_input.split(" ")[1]);
-            
-            // Edge case for when peer requests a file of the same hash as its peer id, don't initiate any sending.
+
+            // Edge case for when peer requests a file of the same hash as its peer id,
+            // don't initiate any sending.
             if (file_name % 256 == this.getPeer()) {
                 System.out.println("File is already stored at this peer!");
                 return;
@@ -160,16 +153,25 @@ public class cdht {
             System.out.println("File request message for " + file_name + " has been sent to my successor.");
             fileRequest(file_name, this.getPeer());
 
+            // QUIT REQUEST INPUT MATCH
         } else if (quit_matcher.find()) {
-            // Send messages the both predecessors and kill running threads.
-            gracefulQuit(this.first_pred);
-            gracefulQuit(this.second_pred);
-            killThreads();
 
+            // Kill the ping sender and ping server.
+            this.pingSenderFirst.shutdown();
+            this.pingSenderSecond.shutdown();
+            this.pingServer.shutdown();
+
+            // Send messages TCP messages that we are leaving the network.
+            this.gracefulQuit(this.getFirstPredecessor());
+            this.gracefulQuit(this.getSecondPredecessor());
+
+            this.shutdown = true;
+
+            // MATCH FOR DEBUGGING
         } else if (debug_matcher.find()) {
             // Used to debug state information.
-            System.out.println(String.format("[P2: %s P1: %s S1: %s S2: %s]", this.second_pred, 
-                                            this.first_pred, this.first_succ, this.second_succ));
+            System.out.println(String.format("[P2: %s P1: %s S1: %s S2: %s]", this.second_pred, this.first_pred,
+                    this.first_succ, this.second_succ));
         }
     }
 
@@ -184,7 +186,8 @@ public class cdht {
             Socket sendSocket = new Socket("localhost", cdht.getPort(this.getFirstSuccessor()));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
 
-            //Send the request message to the first successor. Third parameter = 1 => it is a query.
+            // Send the request message to the first successor. Third parameter = 1 => it is
+            // a query.
             String file_request_msg = createFileRequest(file_name, sending_peer, 1);
             messageStream.writeBytes(file_request_msg);
             sendSocket.close();
@@ -195,12 +198,19 @@ public class cdht {
     }
 
     public void initiateFileTransfer(int sending_peer, int file_name) {
-        FileSenderUDP fs = new FileSenderUDP(file_name, sending_peer, peer_id, MSS, drop_prob);
+        FileSenderUDP fs = new FileSenderUDP(file_name, sending_peer, 
+                                            this.peer_id, this.MSS, this.drop_prob, this.time);
         fs.start();
     }
 
+    public static String write_log_text(String event, long time, int seq_num, int num_bytes, int ack_num) {
+        return event + "\t\t" + time + "\t" + seq_num + "\t" + num_bytes + "\t" + ack_num;
+    }
+
     /**
-     * Initiates a graceful quit procedure for this peer to the peer with ID receiver.
+     * Initiates a graceful quit procedure for this peer to the peer with ID
+     * receiver.
+     * 
      * @param receiver
      */
     private void gracefulQuit(int receiver) {
@@ -214,7 +224,8 @@ public class cdht {
                 // The first predecessor's successors become the quitting peer's two successors.
                 quitMessage = createGracefulQuitMessage(this.first_succ, this.second_succ);
             } else if (receiver == this.second_pred) {
-                // The second predecessor's successors become the quitting peer's first predecessor and first successor.
+                // The second predecessor's successors become the quitting peer's first
+                // predecessor and first successor.
                 quitMessage = createGracefulQuitMessage(this.first_pred, this.first_succ);
             } else {
                 System.out.println("Impossible Error just occurred.");
@@ -228,29 +239,36 @@ public class cdht {
     }
 
     /**
-     * Handles when a peer has failed to return MAX_FAILS pings and is assumed dead. We have to update successors
-     * accordingly.
+     * Handles when a peer has failed to return MAX_FAILS pings and is assumed dead.
+     * We have to update successors accordingly.
      * 
      * @param first flag for whether the failed peer is a first successor or not.
      */
     public void handleDeadPeer(boolean first) {
         if (first) {
             // Print messages to stdout.
-            System.out.println(String.format("Peer %d is no longer alive", getFirstSuccessor()));
-            System.out.println(String.format("My first successor is now peer %d.", getSecondSuccessor()));
+            System.out.println(String.format("Peer %d is no longer alive", this.getFirstSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d.", this.getSecondSuccessor()));
 
             // Set the first successor as the second successor if the first successor died.
-            setFirstSuccessor(getSecondSuccessor());
-            
+            this.setFirstSuccessor(this.getSecondSuccessor());
+
         } else {
+            // Wait a brief amount of time for the first successor to update their successors.
+            try {
+                Thread.sleep(50);
+            } catch (InterruptedException e) {
+                e.printStackTrace();
+            }
+
             // Print messages to stdout.
-            System.out.println(String.format("Peer %d is no longer alive.", getSecondSuccessor()));
-            System.out.println(String.format("My first successor is now peer %d.", getFirstSuccessor()));
+            System.out.println(String.format("Peer %d is no longer alive.", this.getSecondSuccessor()));
+            System.out.println(String.format("My first successor is now peer %d.", this.getFirstSuccessor()));
         }
 
         try {
             // Create a TCP Socket to send message to new first successor.
-            Socket sendSocket = new Socket("localhost", cdht.getPort(getFirstSuccessor()));
+            Socket sendSocket = new Socket("localhost", cdht.getPort(this.getFirstSuccessor()));
             DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
             // Create the TCP Message and send it.
             String msg = createSuccessorQuery();
@@ -267,8 +285,8 @@ public class cdht {
      * [QUERY TYPE] [SENDING PEER ID] [PAYLOAD FIELD 1] [PAYLOAD FIELD 2] [PAYLOAD FIELD 3]
      * QUERY TYPE: {GQ: 'Graceful Quit', "FR": 'File Request'}
      * SENDING PEER ID: {The id of the sender}
-     * PAYLOAD: {GQ: '[ID to be set as receivers FIRST SUCC] [ID to be set as receivers SECOND SUCC] [0]', 
-     *           FR: '[FILE NAME] [FLAG => true if successor has the file.] [QUERY FLAG = 1 if query]'
+     * PAYLOAD: {GQ: '[receivers nbew SUCC1] [receivers new SUCC2] [QUIT FLAG = 1 => if this peer wants to quit]', 
+     *           FR: '[FILE NAME] [FLAG => true if successor has the file.] [QUERY FLAG = 1 if query]',
      *           DP: '[QUERY FLAG] [IF FLAG = 0: ID OF SUCCESSOR, ELSE 0] [0]'
      *          } 
      */
@@ -294,14 +312,14 @@ public class cdht {
     }
 
     /**
-     * Creates a TCP protocol message for graceful quitting
-     * 
+     * Creates a TCP protocol message for graceful quitting. 
+     * [GQ] [sending_peer] [first_id] [second_id] [query_flag = 1 => I want to leave]
      * @param first_id new first successor
      * @param second_id new second successor.
      * @return
      */
     private String createGracefulQuitMessage(int first_id, int second_id) {
-        String payload = Integer.toString(first_id) + " " + Integer.toString(second_id) + " " + 0;
+        String payload = Integer.toString(first_id) + " " + Integer.toString(second_id) + " " + 1;
         return TCPmessageBeginning("GQ") + " " + payload;
     }
 

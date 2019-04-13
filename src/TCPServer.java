@@ -1,8 +1,5 @@
-import java.io.BufferedReader;
-import java.io.DataOutputStream;
-import java.io.IOException;
-import java.io.InputStreamReader;
 import java.net.*;
+import java.io.*;
 
 public class TCPServer implements Runnable {
 
@@ -11,6 +8,10 @@ public class TCPServer implements Runnable {
     private cdht peer;
     private ServerSocket TCPSocket;
     private volatile boolean shutdown = false;
+
+    // Used for acknowledging that both successors have received a graceful departure message.
+    private boolean first_pred_rcvd = false;
+    private boolean second_pred_rcvd = false;
 
     /**
      * Instantiates the TCP server.
@@ -41,8 +42,7 @@ public class TCPServer implements Runnable {
     /**
      * Shuts down the thread by modifying controlling variable.
      */
-    public void shutdown() throws IOException {
-        this.TCPSocket.close();
+    public void shutdown() {
         this.shutdown = true;
     }
 
@@ -53,7 +53,7 @@ public class TCPServer implements Runnable {
         int port = cdht.getPort(peer.getPeer());
         try {
             this.TCPSocket = new ServerSocket(port, 0, InetAddress.getByName("localhost"));
-            while (!shutdown) {
+            while (!this.shutdown) {
                 Socket tcps = TCPSocket.accept();
                 BufferedReader tcp_reader = new BufferedReader(new InputStreamReader(tcps.getInputStream()));
                 String tcp_message = tcp_reader.readLine().trim();
@@ -116,23 +116,50 @@ public class TCPServer implements Runnable {
 
     /**
      * Processes a graceful quit from a peer.
-     * 
-     * @param message_fields an array of three integers that store [sending_peer] [first_pred] [second_pred]
+     * message_fields is an array of three integers that store [sending_peer] [first_pred] [second_pred] [query_flag]
+     * @param message_fields 
      */
     private void processGracefulQuit(int[] message_fields) {
         int sending_peer = message_fields[0];
         int first_pred = message_fields[1];
         int second_pred = message_fields[2];
+        int query_flag = message_fields[3];
 
-        System.out.println(String.format("Peer %s will depart from the network.", sending_peer));
+        if (query_flag == 1) {
+            System.out.println(String.format("Peer %s will depart from the network.", sending_peer));
 
-        // convert the numbers in the payload to integers.
-        System.out.println("My first successor is now peer " + first_pred);
-        System.out.println("My second successor is now peer " + second_pred);
+            // convert the numbers in the payload to integers.
+            System.out.println("My first successor is now peer " + first_pred);
+            System.out.println("My second successor is now peer " + second_pred);
+    
+            // Update the successors of the peer.
+            this.peer.setFirstSuccessor(first_pred);
+            this.peer.setSecondSuccessor(second_pred);
 
-        // Update the successors of the peer.
-        this.peer.setFirstSuccessor(first_pred);
-        this.peer.setSecondSuccessor(second_pred);
+            // Send an acknowledgement back to the quitting peer that we have received the quit message.
+            sendGracefulQuitAck(sending_peer);
+        } else {
+            // Wait for acks from both predecessors before the peer quits.
+            if (sending_peer == this.peer.getFirstPredecessor()) {this.first_pred_rcvd = true;}
+            if (sending_peer == this.peer.getSecondPredecessor()) {this.second_pred_rcvd = true;}
+            if (this.first_pred_rcvd && this.second_pred_rcvd) {
+                this.shutdown();
+            }
+        }
+    }
+
+    private void sendGracefulQuitAck(int sending_peer) {
+        try {
+            // Set up the TCP Socket
+            Socket sendSocket = new Socket("localhost", cdht.getPort(sending_peer));
+            DataOutputStream messageStream = new DataOutputStream(sendSocket.getOutputStream());
+            // [GQ] [SENDING_PEER] [FIRST_SUCC = 0 (unused)] [SECOND_SUCC = 0 (unused)] [QUERY_FLAG = 0]
+            String quit_message = "GQ " + this.peer.getPeer() + " " + 0 + " " + 0 + " " + 0;
+            messageStream.writeBytes(quit_message + "\n");
+            sendSocket.close();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 
     /**

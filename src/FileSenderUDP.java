@@ -1,15 +1,7 @@
-import java.io.BufferedInputStream;
-import java.io.ByteArrayInputStream;
-import java.io.File;
-import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.net.DatagramPacket;
-import java.net.DatagramSocket;
-import java.net.InetAddress;
-import java.net.SocketException;
-import java.net.SocketTimeoutException;
-import java.net.UnknownHostException;
+import java.net.*;
+import java.io.*;
+import java.time.Instant;
+import java.time.Duration;
 
 public class FileSenderUDP implements Runnable {
     private static final String threadName = "PingSenderUDP";
@@ -20,14 +12,16 @@ public class FileSenderUDP implements Runnable {
     private int sending_peer;
     private int peer_id;
     private float drop_prob;
+    private Instant time;
     private File file;
 
-    public FileSenderUDP(int file_name, int sending_peer, int peer_id, int MSS, float drop_prob) {
+    public FileSenderUDP(int file_name, int sending_peer, int peer_id, int MSS, float drop_prob, Instant start_time) {
         this.sending_peer = sending_peer;
         this.peer_id = peer_id;
         this.MSS = MSS;
         this.drop_prob = drop_prob;
         this.file = new File("./" + file_name + ".pdf");
+        this.time = start_time;
     }
 
     public void run() {
@@ -46,6 +40,9 @@ public class FileSenderUDP implements Runnable {
 
     private void beginFileTransfer() {
         try {
+            // For writing transmission data to a log.
+            PrintWriter sender_log = new PrintWriter("responding_log.txt");
+
             // Setup networking varaibles
             InetAddress ip = InetAddress.getLocalHost();
             int port = cdht.getPort(this.sending_peer);
@@ -61,7 +58,7 @@ public class FileSenderUDP implements Runnable {
             // Stores how much of the file has left to be read.
             long file_len = this.file.length();
             // Stores the current amount of data read for Sequence numbers.
-            int curr_len = 0;
+            int seq_num = 1;
             // Flag for indicating whether we have reached the end of the file.
             int eof_flag = 0;
             // Flag for indicating whether we are retransmitting a packet.
@@ -73,10 +70,10 @@ public class FileSenderUDP implements Runnable {
             
             long size = MSS;
             while (file_len > 0) {
-                
+                Duration time_diff = Duration.between(this.time, Instant.now());
                 // If the packet is not a retransmission, do not write any extra data to the buffer.
                 if (retrans_flag == 0) {
-
+                    
                     // Send MSS bytes of data if the filesize is large enough, otherwise send the remainder of the file.
                     if (file_len < MSS) {
                         size = file_len;
@@ -84,14 +81,18 @@ public class FileSenderUDP implements Runnable {
                     } else {
                         size = MSS;
                     }
+                    // Create packet header
+                    header_data = createPacketHeader(seq_num, (int) size, eof_flag);
+                    // Time between end of program and now.
+                    sender_log.println(cdht.write_log_text("snd", time_diff.toMillis(), seq_num, (int) size, 0));
 
                     // Reduce file size by packet size.
                     file_len -= size;
                     // Increase the amount of file data read to be sent in the packet header.
-                    curr_len += size;
+                    seq_num += size;
 
                     // Create a byte array input stream for the packet header.
-                    header_data = createPacketHeader(curr_len, eof_flag);
+                    
                     header_data_stream = new ByteArrayInputStream(header_data);
 
                     // Read in the header to first TRANSFER_HEADER_LEN bytes then read in the rest from the file stream.
@@ -100,18 +101,21 @@ public class FileSenderUDP implements Runnable {
                     file_data_stream.read(send_buffer, cdht.TRANSFER_HEADER_LEN, (int) size);
                     header_data_stream.close();
                 } else {
-                    System.out.println("RETRANSMISSION.");
+                    sender_log.println(cdht.write_log_text("RTX", time_diff.toMillis(), seq_num, (int) size, 0));
                 }
 
                 // Randomly drop the packet, otherwise send it.
                 double rand = Math.random();
-                System.out.println(rand);
                 if (rand > this.drop_prob) {
                     retrans_flag = 0;
                     DatagramPacket pkt = new DatagramPacket(send_buffer, send_buffer.length, ip, port);
                     socket.send(pkt);
                 } else {
-                    System.out.println("PACKET DROPPED.");
+                    if (retrans_flag == 1) {
+                        sender_log.println(cdht.write_log_text("RTX/Drop", time_diff.toMillis(), seq_num, (int) size, 0));
+                    } else {
+                        sender_log.println(cdht.write_log_text("Drop", time_diff.toMillis(), seq_num, (int) size, 0));
+                    }
                 }
                
                 try {
@@ -121,12 +125,17 @@ public class FileSenderUDP implements Runnable {
                     String ack_response = new String(ack_packet.getData());
                     String[] ack_data = ack_response.trim().split(" ");
                     
+                    // Reading in num_bytes_sent and ack number from receivers ack.
+                    int num_bytes_sent = Integer.parseInt(ack_data[2]);
+                    int ack_num = Integer.parseInt(ack_data[1]);
+
                     // If we did not receive an "ACK" Continue waiting for an ack.
                     while (!ack_data[0].equals("ACK")) {
                         socket.receive(ack_packet);
                         ack_response = new String(ack_packet.getData());
                         ack_data = ack_response.trim().split(" ");
                     }
+                    sender_log.println(cdht.write_log_text("rcv", time_diff.toMillis(), 0, num_bytes_sent, ack_num));
                 } catch (SocketTimeoutException e) {
                     // On timeout set the retransmission flag so we know to retransmit.
                     retrans_flag = 1;
@@ -135,6 +144,7 @@ public class FileSenderUDP implements Runnable {
             // Close all streams and the UDP socket.
             System.out.println("TRANSMISSION COMPLETE");
             file_data_stream.close();
+            sender_log.close();
             socket.close();
         } catch (UnknownHostException e1) {
             return;
@@ -150,12 +160,12 @@ public class FileSenderUDP implements Runnable {
     /**
      * Packet header format:
      * 
-     * [UDP MSG TYPE=FS] [PEER_ID] [CURRENT FILE LEN (Sent Bytes)] [EOF = 0 => not the end of file.]
+     * [UDP MSG TYPE=FS] [SEQ_NUM] [NUM_SENT_BYTES (Sent Bytes)] [EOF = 0 => not the end of file.]
      * @param curr_len
      * @return byte array for the header.
      */
-    private byte[] createPacketHeader(int curr_len, int end_of_file) {
-        String header = "FS " + this.peer_id + " " + curr_len + " " + end_of_file;
+    private byte[] createPacketHeader(int seq_num, int num_bytes_sent, int end_of_file) {
+        String header = "FS " + seq_num + " " + num_bytes_sent + " " + end_of_file;
         ByteArrayInputStream bais = new ByteArrayInputStream(header.getBytes());
         byte[] header_buf = new byte[cdht.TRANSFER_HEADER_LEN];
         bais.read(header_buf, 0, cdht.TRANSFER_HEADER_LEN);
