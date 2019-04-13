@@ -10,14 +10,12 @@ public class FileSenderUDP implements Runnable {
 
     private int MSS;
     private int sending_peer;
-    private int peer_id;
     private float drop_prob;
     private Instant time;
     private File file;
 
-    public FileSenderUDP(int file_name, int sending_peer, int peer_id, int MSS, float drop_prob, Instant start_time) {
+    public FileSenderUDP(int file_name, int sending_peer, int MSS, float drop_prob, Instant start_time) {
         this.sending_peer = sending_peer;
-        this.peer_id = peer_id;
         this.MSS = MSS;
         this.drop_prob = drop_prob;
         this.file = new File("./" + file_name + ".pdf");

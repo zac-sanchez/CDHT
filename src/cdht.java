@@ -198,8 +198,7 @@ public class cdht {
     }
 
     public void initiateFileTransfer(int sending_peer, int file_name) {
-        FileSenderUDP fs = new FileSenderUDP(file_name, sending_peer, 
-                                            this.peer_id, this.MSS, this.drop_prob, this.time);
+        FileSenderUDP fs = new FileSenderUDP(file_name, sending_peer, this.MSS, this.drop_prob, this.time);
         fs.start();
     }
 
