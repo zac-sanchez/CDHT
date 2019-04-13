@@ -99,7 +99,8 @@ public class TCPServer implements Runnable {
             if (has_file == 1) {
                 // If we have the file then send a response to the sending peer.
                 this.sendResponseMessage(sending_peer, file_name);
-                this.peer.beginFileTransfer(sending_peer, file_name);
+                // Begin transferring the file.
+                this.peer.initiateFileTransfer(sending_peer, file_name);
             } else {
                 System.out.println("File " + file_name + " is not stored here.");
                 System.out.println("File request mesage has been forwarded to my successor.");
@@ -159,6 +160,7 @@ public class TCPServer implements Runnable {
      * @param file_name The name of the file to be transferred.
      */
     private void sendResponseMessage(int sending_peer, int file_name) {
+        System.out.println("File " + file_name + " is stored here.");
         System.out.println("A response message, destined for peer " + sending_peer + ", has been sent.");
         try {
             Socket sendSocket = new Socket("localhost", cdht.getPort(sending_peer));

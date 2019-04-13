@@ -3,7 +3,7 @@ import java.io.*;
 import java.util.regex.*;
 
 public class cdht {
-
+    public static final int TRANSFER_HEADER_LEN = 20;
     public static final int DEFAULT_PORT = 50000;
     public static final int PING_FREQ = 20000;
     public static final int SOCKET_TIMEOUT_FREQ = 5000;
@@ -54,7 +54,6 @@ public class cdht {
             System.err.println("Error parsing arguments.");
             System.exit(1);
         }
-
         // Start the peer and all services.
         peer.initializeThreads();
 
@@ -195,9 +194,9 @@ public class cdht {
         }
     }
 
-    
-    public void beginFileTransfer(int sending_peer, int file_name) {
-        System.out.println("File " + file_name + " is stored here.");
+    public void initiateFileTransfer(int sending_peer, int file_name) {
+        FileSenderUDP fs = new FileSenderUDP(file_name, sending_peer, peer_id, MSS, drop_prob);
+        fs.start();
     }
 
     /**
@@ -361,7 +360,7 @@ public class cdht {
     
     /**
      * Gets the first successor of the peer to the given id.
-     * @param id
+     * @return
      */
     public int getFirstSuccessor() {
         return this.first_succ;
@@ -369,15 +368,15 @@ public class cdht {
 
     /**
      * Gets the second successor of the peer to the given id.
-     * @param id
+     * @return
      */
     public int getSecondSuccessor() {
         return this.second_succ;
     }
 
-        /**
+    /**
      * Gets the first successor of the peer to the given id.
-     * @param id
+     * @return
      */
     public int getFirstPredecessor() {
         return this.first_pred;
@@ -385,7 +384,7 @@ public class cdht {
 
     /**
      * Gets the second successor of the peer to the given id.
-     * @param id
+     * @return
      */
     public int getSecondPredecessor() {
         return this.second_pred;
@@ -393,10 +392,18 @@ public class cdht {
     
     /**
      * Gets the peer id of the peer.
-     * @param id
+     * @return
      */
     public int getPeer() {
         return this.peer_id;
+    }
+
+    /**
+     * Gets the MSS of the peer.
+     * @return
+     */
+    public int getMSS() {
+        return this.MSS;
     }
 
     //=======================SETTER METHODS============================//

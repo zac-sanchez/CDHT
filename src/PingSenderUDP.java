@@ -122,7 +122,7 @@ public class PingSenderUDP implements Runnable {
     /**
      * Creates a ping request string giving information about the sending peer to the successor. 
      * 
-     * Ping format is: [SENDING PEER \ FLAG]
+     * Ping format is: [UDP FORMAT = PING] [SENDING PEER] [FLAG]
      * 
      * Where flag == true => we are sending to the first successor.
      * 
@@ -131,7 +131,7 @@ public class PingSenderUDP implements Runnable {
      */
     private String createPingRequest(int peer_id, boolean flag) {
         int val = flag ? 1 : 0;
-        return peer_id + " " + val;
+        return "PG " + peer_id + " " + val;
     }
 
     /**
