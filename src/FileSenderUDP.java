@@ -52,7 +52,7 @@ public class FileSenderUDP implements Runnable {
             // Create buffer to send file data (dynamically allocated based on MSS size)
             byte[] send_buffer = null;
             // Create buffer to receive acks.
-            byte[] rcv_buffer = new byte[10];
+            byte[] rcv_buffer = new byte[cdht.TRANSFER_HEADER_LEN];
             // Create buffer for storing header data.
             byte[] header_data; 
             // Stores how much of the file has left to be read.

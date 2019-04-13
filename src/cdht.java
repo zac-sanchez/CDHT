@@ -204,7 +204,7 @@ public class cdht {
     }
 
     public static String write_log_text(String event, long time, int seq_num, int num_bytes, int ack_num) {
-        return event + "\t\t" + time + "\t" + seq_num + "\t" + num_bytes + "\t" + ack_num;
+        return String.format("%-10s %-10s %-10s %-10s %-10s", event, time, seq_num, num_bytes, ack_num);
     }
 
     /**

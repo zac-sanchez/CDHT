@@ -12,7 +12,7 @@ public class PingServerUDP implements Runnable {
     private DatagramSocket udpSocket;
     private FileOutputStream fos = null;
     private volatile boolean shutdown = false;
-    private PrintWriter requesting;
+    private PrintWriter requesting_log;
 
     /**
      * Instantiates a ping server.
@@ -75,7 +75,7 @@ public class PingServerUDP implements Runnable {
         ByteArrayOutputStream request_outstrm = new ByteArrayOutputStream();
         request_outstrm.write(request.getData(), 0, 2);
         byte[] type_buf = request_outstrm.toByteArray();
-        try{ 
+        try {
             if (new String(type_buf).equals("FS")) {
 
                 // Grab header data from the request packet.
@@ -93,23 +93,37 @@ public class PingServerUDP implements Runnable {
                 InetAddress ip = request.getAddress();
                 int port = request.getPort();
 
+                // The file stream hasn't been created yet so create it.
                 if (this.fos == null) {
                     this.fos = new FileOutputStream("received_file.pdf");
-                    this.requesting = new PrintWriter("requesting_log.txt");
+                    this.requesting_log = new PrintWriter("requesting_log.txt");
                 }
+
+                // Receive a file packet and write to log file we have received the packet.
                 receiveFilePacket(request, eof_flag);
                 Duration time_diff = Duration.between(peer.time, Instant.now());
-                this.requesting.println(cdht.write_log_text("rcv", time_diff.toMillis(), 
-                                                            seq_num, num_bytes_sent, 0));
+                this.requesting_log.println(cdht.write_log_text("rcv", time_diff.toMillis(), seq_num, num_bytes_sent, 0));
+
+                // Send an acknowledgement to the responder and write to the log file.
                 ackFilePacket(seq_num, num_bytes_sent, ip, port);
-                this.requesting.println(cdht.write_log_text("snd", time_diff.toMillis(), 
-                                                            0, num_bytes_sent, seq_num+num_bytes_sent));
+                this.requesting_log.println(
+                        cdht.write_log_text("snd", time_diff.toMillis(), 0, num_bytes_sent, seq_num + num_bytes_sent));
+
+                // The end of the file is reached, close the requesting log.
+                if (eof_flag == 1) {
+                    System.out.println("The file is received.");
+                    this.fos.close();
+                    this.requesting_log.close();
+                    this.fos = null;
+                }
             } else if (new String(type_buf).equals("PG")) {
                 // Print ping request and send a response back to the sender.
                 printPingRequest(request);
                 sendPingResponse(this.udpSocket, request, Integer.toString(peer.getPeer()));
             }
         } catch (FileNotFoundException e) {
+            return;
+        } catch (IOException e) {
             return;
         }
         
@@ -118,13 +132,6 @@ public class PingServerUDP implements Runnable {
     private void receiveFilePacket(DatagramPacket request, int eof_flag) {
         try {
             this.fos.write(request.getData(), cdht.TRANSFER_HEADER_LEN, request.getLength() - cdht.TRANSFER_HEADER_LEN);
-
-            if (eof_flag == 1) {
-                System.out.println("The file is received.");
-                this.fos.close();
-                this.requesting.close();
-                this.fos = null;
-            }
         } catch (IOException e) {
             return;
         }
@@ -137,7 +144,8 @@ public class PingServerUDP implements Runnable {
      * @param num_bytes_sent how many bytes were read (used for sequence numbers).
      */
     private void ackFilePacket(int seq_num, int num_bytes_sent, InetAddress ip, int port) {
-        String ack = "ACK" + " " + seq_num + " " + num_bytes_sent;
+        int ack_num = seq_num + num_bytes_sent;
+        String ack = "ACK" + " " + ack_num + " " + num_bytes_sent;
         byte[] ack_bytes = ack.getBytes();
         DatagramPacket ack_pkt = new DatagramPacket(ack_bytes, ack_bytes.length, ip, port);
         try {
