@@ -116,6 +116,7 @@ public class PingServerUDP implements Runnable {
         try {
             this.fos.write(request.getData(), cdht.TRANSFER_HEADER_LEN, request.getLength() - cdht.TRANSFER_HEADER_LEN);
             if (eof_flag == 1) {
+                System.out.println("The file is received.");
                 this.fos.close();
                 this.fos = null;
             }

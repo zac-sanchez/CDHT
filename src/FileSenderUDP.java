@@ -8,6 +8,7 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.SocketException;
+import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 
 public class FileSenderUDP implements Runnable {
@@ -52,17 +53,19 @@ public class FileSenderUDP implements Runnable {
             socket.setSoTimeout(SOCKET_TIMEOUT);
 
             // Create buffer to send file data (dynamically allocated based on MSS size)
-            byte[] send_buffer;
+            byte[] send_buffer = null;
             // Create buffer to receive acks.
             byte[] rcv_buffer = new byte[10];
             // Create buffer for storing header data.
             byte[] header_data; 
-            // Stores how much of the file has been read so far.
+            // Stores how much of the file has left to be read.
             long file_len = this.file.length();
-            // Used for Sequence numbers.
+            // Stores the current amount of data read for Sequence numbers.
             int curr_len = 0;
-            // Flag for indiciating whether we have reached the end of the file.
+            // Flag for indicating whether we have reached the end of the file.
             int eof_flag = 0;
+            // Flag for indicating whether we are retransmitting a packet.
+            int retrans_flag = 0;
 
             // Get a ByteStream from the File.
             ByteArrayInputStream header_data_stream;
@@ -71,56 +74,69 @@ public class FileSenderUDP implements Runnable {
             long size = MSS;
             while (file_len > 0) {
                 
-                // Send MSS bytes of data if the filesize is large enough, otherwise send the remainder of the file.
-                if (file_len < MSS) {
-                    size = file_len;
-                    eof_flag = 1;
+                // If the packet is not a retransmission, do not write any extra data to the buffer.
+                if (retrans_flag == 0) {
+
+                    // Send MSS bytes of data if the filesize is large enough, otherwise send the remainder of the file.
+                    if (file_len < MSS) {
+                        size = file_len;
+                        eof_flag = 1;
+                    } else {
+                        size = MSS;
+                    }
+
+                    // Reduce file size by packet size.
+                    file_len -= size;
+                    // Increase the amount of file data read to be sent in the packet header.
+                    curr_len += size;
+
+                    // Create a byte array input stream for the packet header.
+                    header_data = createPacketHeader(curr_len, eof_flag);
+                    header_data_stream = new ByteArrayInputStream(header_data);
+
+                    // Read in the header to first TRANSFER_HEADER_LEN bytes then read in the rest from the file stream.
+                    send_buffer = new byte[cdht.TRANSFER_HEADER_LEN + (int) size];
+                    header_data_stream.read(send_buffer, 0, cdht.TRANSFER_HEADER_LEN);
+                    file_data_stream.read(send_buffer, cdht.TRANSFER_HEADER_LEN, (int) size);
+                    header_data_stream.close();
                 } else {
-                    size = MSS;
+                    System.out.println("RETRANSMISSION.");
                 }
 
-                // Reduce file size by packet size.
-                file_len -= size;
-                // Increase the amount of file data read to be sent in the packet header.
-                curr_len += size;
-
-                // Create a byte array input stream for the packet header.
-                header_data = createPacketHeader(curr_len, eof_flag);
-                header_data_stream = new ByteArrayInputStream(header_data);
-                
-                // Read in the header to first TRANSFER_HEADER_LEN bytes then read in the rest from the file stream.
-                send_buffer = new byte[cdht.TRANSFER_HEADER_LEN + (int) size];
-                header_data_stream.read(send_buffer, 0, cdht.TRANSFER_HEADER_LEN);
-                file_data_stream.read(send_buffer, cdht.TRANSFER_HEADER_LEN, (int) size);
-
-                // Send the packet.
-                DatagramPacket pkt = new DatagramPacket(send_buffer, send_buffer.length, ip, port);
-                socket.send(pkt);
-
-                // Wait for an acknowledgement packet from the receiver.
-                DatagramPacket ack_packet = new DatagramPacket(rcv_buffer, rcv_buffer.length);
-                socket.receive(ack_packet);
-                String ack_response = new String(ack_packet.getData());
-                String[] ack_data = ack_response.trim().split(" ");
-                
-                // If we did not receive an "ACK" Continue waiting for an ack.
-                while (!ack_data[0].equals("ACK")) {
+                // Randomly drop the packet, otherwise send it.
+                double rand = Math.random();
+                System.out.println(rand);
+                if (rand > this.drop_prob) {
+                    retrans_flag = 0;
+                    DatagramPacket pkt = new DatagramPacket(send_buffer, send_buffer.length, ip, port);
+                    socket.send(pkt);
+                } else {
+                    System.out.println("PACKET DROPPED.");
+                }
+               
+                try {
+                    // Wait for an acknowledgement packet from the receiver.
+                    DatagramPacket ack_packet = new DatagramPacket(rcv_buffer, rcv_buffer.length);
                     socket.receive(ack_packet);
-                    ack_response = new String(ack_packet.getData());
-                    ack_data = ack_response.trim().split(" ");
+                    String ack_response = new String(ack_packet.getData());
+                    String[] ack_data = ack_response.trim().split(" ");
+                    
+                    // If we did not receive an "ACK" Continue waiting for an ack.
+                    while (!ack_data[0].equals("ACK")) {
+                        socket.receive(ack_packet);
+                        ack_response = new String(ack_packet.getData());
+                        ack_data = ack_response.trim().split(" ");
+                    }
+                } catch (SocketTimeoutException e) {
+                    // On timeout set the retransmission flag so we know to retransmit.
+                    retrans_flag = 1;
                 }
-
-                header_data_stream.close();
             }
-
             // Close all streams and the UDP socket.
+            System.out.println("TRANSMISSION COMPLETE");
             file_data_stream.close();
             socket.close();
-        } catch (SocketException e) {
-            e.printStackTrace();
-            return;
         } catch (UnknownHostException e1) {
-            e1.printStackTrace();
             return;
         } catch (FileNotFoundException e) {
             e.printStackTrace();
