@@ -37,11 +37,12 @@ public class FileSenderUDP implements Runnable {
     }
 
     private void beginFileTransfer() {
+        System.out.println("We now start sending the file .....");
         try {
             // For writing transmission data to a log.
             PrintWriter sender_log = new PrintWriter("responding_log.txt");
 
-            // Setup networking varaibles
+            // Setup networking variables
             InetAddress ip = InetAddress.getLocalHost();
             int port = cdht.getPort(this.sending_peer);
             DatagramSocket socket = new DatagramSocket();
@@ -67,7 +68,8 @@ public class FileSenderUDP implements Runnable {
             BufferedInputStream file_data_stream = new BufferedInputStream(new FileInputStream(this.file));
             
             long size = MSS;
-            while (file_len > 0) {
+            // Loop until the file length is zero or until we have finished retransmitting a lost packet.
+            while (file_len > 0 || retrans_flag == 1) {
                 Duration time_diff = Duration.between(this.time, Instant.now());
                 // If the packet is not a retransmission, do not write any extra data to the buffer.
                 if (retrans_flag == 0) {
@@ -79,6 +81,7 @@ public class FileSenderUDP implements Runnable {
                     } else {
                         size = MSS;
                     }
+
                     // Create packet header
                     header_data = createPacketHeader(seq_num, (int) size, eof_flag);
                     // Time between end of program and now.
@@ -90,7 +93,6 @@ public class FileSenderUDP implements Runnable {
                     seq_num += size;
 
                     // Create a byte array input stream for the packet header.
-                    
                     header_data_stream = new ByteArrayInputStream(header_data);
 
                     // Read in the header to first TRANSFER_HEADER_LEN bytes then read in the rest from the file stream.
@@ -140,7 +142,7 @@ public class FileSenderUDP implements Runnable {
                 }
             }
             // Close all streams and the UDP socket.
-            System.out.println("TRANSMISSION COMPLETE");
+            System.out.println("The file is sent.");
             file_data_stream.close();
             sender_log.close();
             socket.close();

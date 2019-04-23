@@ -110,7 +110,7 @@ public class TCPServer implements Runnable {
             // The message was a response message.
             System.out.println("Received a response message from peer " + sending_peer +
                                " which has the file " + file_name + ".");
-            System.out.println("We now start receiving the file...");
+            System.out.println("We now start receiving the file .....");
         }
     }
 
